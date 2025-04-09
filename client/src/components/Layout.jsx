@@ -4,10 +4,12 @@ import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import WebIcon from '@mui/icons-material/Web';
+import WifiIcon from '@mui/icons-material/Wifi';
 
 import ChatInterface from './ChatInterface';
 import FileManager from './FileManager';
 import WebPageAdder from './WebPageAdder';
+import TestConnection from './TestConnection';
 import api from '../services/api';
 
 const drawerWidth = 320;
@@ -15,6 +17,7 @@ const drawerWidth = 320;
 const Layout = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showWebAdder, setShowWebAdder] = useState(false);
+  const [showTestConnection, setShowTestConnection] = useState(false);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -67,6 +70,17 @@ const Layout = () => {
         sx={{ mb: 2 }}
       >
         Clear Chat History
+      </Button>
+
+      <Button 
+        variant="outlined" 
+        color="primary"
+        fullWidth
+        startIcon={<WifiIcon />}
+        onClick={() => setShowTestConnection(true)}
+        sx={{ mb: 2 }}
+      >
+        Test Connection
       </Button>
       
       <Divider sx={{ my: 2 }} />
@@ -150,6 +164,13 @@ const Layout = () => {
         <WebPageAdder 
           open={showWebAdder} 
           onClose={() => setShowWebAdder(false)}
+        />
+      )}
+
+      {showTestConnection && (
+        <TestConnection 
+          open={showTestConnection} 
+          onClose={() => setShowTestConnection(false)}
         />
       )}
     </Box>

@@ -33,14 +33,18 @@ const ChatInterface = () => {
   useEffect(() => {
     // Message chunk handler
     const handleMessageChunk = (data) => {
+      console.log('Message chunk received:', data);
       if (data.session_id === SESSION_ID) {
+        console.log('Setting streaming content:', data.chunk);
         setStreamingContent((prev) => prev + (data.chunk || ''));
       }
     };
 
     // Message complete handler
     const handleMessageComplete = (data) => {
+      console.log('Message complete received:', data);
       if (data.session_id === SESSION_ID) {
+        console.log('Message complete received:', data);
         setMessages((prev) => [
           ...prev,
           { role: 'assistant', content: streamingContent }
@@ -101,6 +105,7 @@ const ChatInterface = () => {
 
   // Handle send message
   const handleSendMessage = async (e) => {
+    console.log('Sending message:', input);
     e?.preventDefault();
     
     if (!input.trim() || isLoading) return;

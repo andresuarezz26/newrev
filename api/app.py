@@ -9,10 +9,14 @@ import time
 from pathlib import Path
 import traceback
 import logging
-
-from flask import Flask, jsonify, request
+import socket
+import flask
+import flask_socketio
+from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
+from werkzeug.utils import secure_filename
+from datetime import datetime
 
 # Add the parent directory to sys.path to be able to import aider modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -123,6 +127,7 @@ class AiderAPI:
             with app.app_context():
                 try:
                     for chunk in coder.run_stream(prompt):
+                        print(f"Chunk: {chunk}")
                         socketio.emit('message_chunk', {'chunk': chunk, 'session_id': session_id})
                     
                     socketio.emit('message_complete', {'session_id': session_id})
@@ -765,6 +770,58 @@ def task_status():
         return jsonify({'status': 'success', 'results': session['task_results']})
     
     return jsonify({'status': 'in_progress'})
+
+@app.route('/api/test_connection', methods=['GET'])
+def test_connection():
+    """Test endpoint for connection debugging"""
+    logger = logging.getLogger(__name__)
+    logger.debug("Test connection endpoint called")
+    return jsonify({
+        'status': 'success',
+        'message': 'API is running and responding',
+        'timestamp': time.time()
+    })
+
+@socketio.on('test_message')
+def handle_test_message(data):
+    """Handle test messages from the client"""
+    logger = logging.getLogger(__name__)
+    logger.debug(f"Received test message: {data}")
+    session_id = data.get('session_id')
+    message = data.get('message', 'No message provided')
+    
+    # Send response in chunks like the rest of the application
+    response = {
+        'session_id': session_id,
+        'original_message': message,
+        'timestamp': time.time(),
+        # Commenting out server_info to avoid attribute errors
+        # 'server_info': {
+        #     'python_version': sys.version,
+        #     'flask_version': flask.__version__,
+        #     'hostname': socket.gethostname(),
+        #     'uptime': time.time() - start_time
+        # }
+    }
+    
+    # Convert response to string and split into chunks
+    response_str = json.dumps(response)
+    chunk_size = 100  # Same chunk size as used in message streaming
+    chunks = [response_str[i:i+chunk_size] for i in range(0, len(response_str), chunk_size)]
+    
+    # Send each chunk
+    for chunk in chunks:
+        socketio.emit('message_chunk', {
+            'chunk': chunk,
+            'session_id': session_id
+        })
+    
+    # Send completion message
+    socketio.emit('message_complete', {
+        'session_id': session_id
+    })
+    
+    logger.debug(f"Sent test response in {len(chunks)} chunks")
 
 # Socket.IO event handlers
 @socketio.on('connect')

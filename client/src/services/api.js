@@ -52,6 +52,7 @@ const api = {
         session_id: SESSION_ID,
         message
       });
+      console.log('Message sent:', response.data);
       return response.data;
     } catch (error) {
       console.error('Error sending message:', error);
