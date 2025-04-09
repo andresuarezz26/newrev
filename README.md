@@ -170,3 +170,111 @@ See the [installation instructions](https://aider.chat/docs/install.html) and [u
 - *"Aider is the precision tool of LLM code gen. It is minimal, thoughtful and capable of surgical changes to your codebase all while keeping the developer in control."* — [Reilly Sweetland](https://x.com/rsweetland/status/1904963807237259586)
 - *"Cannot believe aider vibe coded a 650 LOC feature across service and cli today in 1 shot."* - [autopoietist](https://discord.com/channels/1131200896827654144/1131200896827654149/1355675042259796101)
 
+# Aider Browser
+
+AI pair programming in your browser with automatic PRD generation and task execution.
+
+This project extends the capabilities of [Aider](https://github.com/Aider-AI/aider), allowing you to use its features via a browser interface instead of the command line. It also adds functionality for automated PRD generation, task breakdown, and execution.
+
+## Features
+
+- Browser-based interface for Aider
+- Chat with AI about your code
+- Add/remove files to the conversation
+- Add web page content for reference
+- Git integration (view diffs, undo commits)
+- PRD generation from project descriptions
+- Automatic task breakdown and execution
+
+## Components
+
+This project consists of two main parts:
+
+1. **Flask API Backend**: Interfaces with Aider and exposes its functionality via REST endpoints and WebSockets
+2. **React Frontend**: Provides a user-friendly interface to interact with Aider
+
+## Setup
+
+### Prerequisites
+
+- Python 3.8+
+- Node.js 14+
+- Git
+- A git repository to work with
+- Access to OpenAI, Anthropic, or other supported LLM APIs
+
+### Backend Setup
+
+1. Install the API dependencies:
+
+```bash
+cd api
+pip install -r requirements.txt
+pip install -e ..  # Install aider in development mode
+```
+
+2. Set up your API keys:
+
+```bash
+# For Anthropic Claude
+export ANTHROPIC_API_KEY=your_api_key_here
+
+# For OpenAI
+export OPENAI_API_KEY=your_api_key_here
+```
+
+3. Run the API server:
+
+```bash
+cd api
+python app.py
+```
+
+The server will start on http://localhost:5000.
+
+### Frontend Setup
+
+1. Install the frontend dependencies:
+
+```bash
+cd client
+npm install
+```
+
+2. Run the development server:
+
+```bash
+cd client
+npm start
+```
+
+The React app will start on http://localhost:3000 and automatically open in your browser.
+
+## Usage
+
+1. The interface will initialize with Aider and show available announcements.
+2. Use the sidebar to add files to the chat or add web page content.
+3. Chat with the AI using the main chat interface.
+4. Use the PRD Generator tab to automatically generate PRDs and tasks.
+
+## Common Issues
+
+- **API Connection Issues**: Ensure the Flask API is running before starting the React app.
+- **Git Issues**: The application requires a git repository to work. Make sure you're running it inside a git repository.
+- **LLM API Keys**: If you encounter authentication errors, check that your API keys are correctly set.
+
+## Development
+
+### API Endpoints
+
+See the [API documentation](api/README.md) for available endpoints and WebSocket events.
+
+### Client Structure
+
+- `src/components`: React components
+- `src/services`: API service and socket connection
+
+## License
+
+This project is licensed under the Apache 2.0 License - see the LICENSE file for details.
+
