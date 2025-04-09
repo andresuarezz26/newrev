@@ -297,6 +297,21 @@ const api = {
       console.error('Error getting task status:', error);
       throw error;
     }
+  },
+
+  // Generate tasks from a PRD
+  generateTasksFromPRD: async (prdContent, numTasks = 5) => {
+    try {
+      const response = await axios.post(`${API_URL}/generate_tasks_from_prd`, {
+        session_id: SESSION_ID,
+        prd_content: prdContent,
+        num_tasks: numTasks
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error generating tasks from PRD:', error);
+      throw error;
+    }
   }
 };
 

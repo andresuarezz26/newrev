@@ -15,6 +15,7 @@ from flask_cors import CORS
 from werkzeug.utils import secure_filename
 from datetime import datetime
 import queue
+from dotenv import load_dotenv
 
 # Add the parent directory to sys.path to be able to import aider modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,6 +35,9 @@ sessions = {}
 
 # Message queues for session streaming
 message_queues = {}
+
+# Load environment variables from .env file
+load_dotenv()
 
 class AiderAPI:
     """API wrapper for Aider functionality"""
@@ -604,6 +608,383 @@ def test_connection():
         'timestamp': time.time()
     })
 
+@app.route('/api/generate_tasks_from_prd', methods=['POST'])
+def generate_tasks_from_prd():
+    """Generate tasks from a PRD document"""
+    data = request.json
+    session_id = data.get('session_id')
+    prd_content = data.get('prd_content')
+    num_tasks = data.get('num_tasks', 5)  # Default to 5 tasks if not specified
+    
+    if not session_id or not prd_content:
+        return jsonify({'status': 'error', 'message': 'Session ID and PRD content are required'}), 400
+    
+    session, error = get_or_create_session(session_id)
+    
+    if error:
+        return jsonify({'status': 'error', 'message': error}), 500
+    
+    # Queue the PRD processing task
+    if session_id not in message_queues:
+        message_queues[session_id] = queue.Queue()
+    
+    # Start a background thread to process the PRD
+    thread = threading.Thread(
+        target=process_prd,
+        args=(session_id, prd_content, num_tasks)
+    )
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({'status': 'success', 'message': 'PRD processing started'})
+
+def process_prd(session_id, prd_content, num_tasks):
+    """Process PRD and generate tasks with LLM"""
+    try:
+        # Add status message to the queue
+        message_queues[session_id].put({
+            'type': 'prd_processing_status',
+            'data': {
+                'status': 'started',
+                'message': 'Starting PRD analysis...',
+                'session_id': session_id
+            }
+        })
+        
+        # Call LLM to generate tasks from PRD
+        tasks = generate_tasks_from_prd_with_llm(prd_content, num_tasks)
+        
+        # Update status
+        message_queues[session_id].put({
+            'type': 'prd_processing_status',
+            'data': {
+                'status': 'analyzing_complexity',
+                'message': 'Tasks generated. Analyzing complexity...',
+                'session_id': session_id
+            }
+        })
+        
+        # Analyze complexity of tasks
+        analyzed_tasks = analyze_task_complexity(tasks)
+        
+        # Generate subtasks for complex tasks
+        for task in analyzed_tasks:
+            if task.get('complexityScore', 5) > 5:  # For tasks with complexity > 5
+                message_queues[session_id].put({
+                    'type': 'prd_processing_status',
+                    'data': {
+                        'status': 'generating_subtasks',
+                        'message': f'Generating subtasks for task {task["id"]}: {task["title"]}',
+                        'session_id': session_id
+                    }
+                })
+                
+                # Generate subtasks
+                subtasks = generate_subtasks_for_task(task)
+                task['subtasks'] = subtasks
+        
+        # Send final result
+        message_queues[session_id].put({
+            'type': 'prd_processing_complete',
+            'data': {
+                'tasks': analyzed_tasks,
+                'metadata': {
+                    'projectName': 'PRD Implementation',
+                    'totalTasks': len(analyzed_tasks),
+                    'generatedAt': datetime.now().isoformat()
+                },
+                'session_id': session_id
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error processing PRD: {str(e)}")
+        print(traceback.format_exc())
+        
+        # Send error to client
+        if session_id in message_queues:
+            message_queues[session_id].put({
+                'type': 'error',
+                'data': {
+                    'message': f'Error processing PRD: {str(e)}',
+                    'session_id': session_id
+                }
+            })
+
+def generate_tasks_from_prd_with_llm(prd_content, num_tasks):
+    """Generate tasks from PRD using LLM"""
+    try:
+        import anthropic  # Import at runtime to avoid dependency issues
+        
+        # Get API key and add debugging
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable not found. Please check your .env file.")
+        
+        print(f"Using Anthropic API key: {api_key[:5]}...{api_key[-5:]}")
+        
+        # Initialize Anthropic client
+        client = anthropic.Anthropic(api_key=api_key)
+        
+        # Create system prompt based on claude-task-master
+        system_prompt = f"""You are an AI assistant helping to break down a Product Requirements Document (PRD) into a set of sequential development tasks. 
+Your goal is to create {num_tasks} well-structured, actionable development tasks based on the PRD provided.
+
+Each task should follow this JSON structure:
+{{
+  "id": number,
+  "title": string,
+  "description": string,
+  "status": "pending",
+  "dependencies": number[] (IDs of tasks this depends on),
+  "priority": "high" | "medium" | "low",
+  "details": string (implementation details),
+  "testStrategy": string (validation approach)
+}}
+
+Guidelines:
+1. Create exactly {num_tasks} tasks, numbered from 1 to {num_tasks}
+2. Each task should be atomic and focused on a single responsibility
+3. Order tasks logically - consider dependencies and implementation sequence
+4. Early tasks should focus on setup, core functionality first, then advanced features
+5. Include clear validation/testing approach for each task
+6. Set appropriate dependency IDs (a task can only depend on tasks with lower IDs)
+7. Assign priority (high/medium/low) based on criticality and dependency order
+8. Include detailed implementation guidance in the "details" field
+
+Expected output format:
+{{
+  "tasks": [
+    {{
+      "id": 1,
+      "title": "Setup Project Repository",
+      "description": "...",
+      ...
+    }},
+    ...
+  ]
+}}
+
+Important: Your response must be valid JSON only, with no additional explanation or comments."""
+
+        # Call Anthropic API
+        try:
+            response = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=4000,
+                temperature=0.2,
+                system=system_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": f"Here's the Product Requirements Document (PRD) to break down into {num_tasks} tasks:\n\n{prd_content}"
+                }]
+            )
+        except Exception as api_error:
+            print(f"Anthropic API error: {str(api_error)}")
+            print(f"API error details: {type(api_error).__name__}")
+            raise ValueError(f"Failed to call Anthropic API: {str(api_error)}")
+        
+        # Extract and parse response
+        response_text = response.content[0].text
+        
+        # Find and extract JSON
+        json_start = response_text.find('{')
+        json_end = response_text.rindex('}')
+        json_content = response_text[json_start:json_end+1]
+        
+        tasks_data = json.loads(json_content)
+        
+        return tasks_data.get('tasks', [])
+    except Exception as e:
+        print(f"Error generating tasks from PRD: {str(e)}")
+        print(traceback.format_exc())
+        raise e
+
+def analyze_task_complexity(tasks):
+    """Analyze complexity of tasks using LLM"""
+    try:
+        import anthropic
+        
+        # Get API key and add debugging
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable not found. Please check your .env file.")
+        
+        print(f"Using Anthropic API key for complexity analysis: {api_key[:5]}...{api_key[-5:]}")
+        
+        # Initialize Anthropic client
+        client = anthropic.Anthropic(api_key=api_key)
+        
+        # Create prompt for complexity analysis
+        complexity_prompt = "Analyze the complexity of the following tasks:\n\n"
+        
+        for task in tasks:
+            complexity_prompt += f"""
+Task ID: {task['id']}
+Title: {task['title']}
+Description: {task['description']}
+Details: {task.get('details', 'No details provided')}
+Dependencies: {task.get('dependencies', [])}
+Priority: {task.get('priority', 'medium')}
+
+"""
+        
+        complexity_prompt += """
+For each task, provide a complexity score from 1-10, where:
+1-3: Low complexity, straightforward implementation
+4-6: Medium complexity, requires some thought but follows standard patterns
+7-10: High complexity, challenging implementation, requires careful planning
+
+Return results as a JSON array with this structure:
+[
+  {
+    "taskId": 1,
+    "complexityScore": 5,
+    "reasoning": "Brief explanation of your assessment"
+  },
+  ...
+]
+
+Include an analysis for EVERY task listed above.
+"""
+        
+        # Call Anthropic API
+        try:
+            response = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=4000,
+                temperature=0.1,
+                messages=[{
+                    "role": "user",
+                    "content": complexity_prompt
+                }]
+            )
+        except Exception as api_error:
+            print(f"Anthropic API error during complexity analysis: {str(api_error)}")
+            print(f"API error details: {type(api_error).__name__}")
+            raise ValueError(f"Failed to call Anthropic API for complexity analysis: {str(api_error)}")
+        
+        # Extract and parse response
+        response_text = response.content[0].text
+        
+        # Find and extract JSON
+        json_start = response_text.find('[')
+        json_end = response_text.rindex(']')
+        json_content = response_text[json_start:json_end+1]
+        
+        complexity_analysis = json.loads(json_content)
+        
+        # Update tasks with complexity information
+        for task in tasks:
+            for analysis in complexity_analysis:
+                if analysis['taskId'] == task['id']:
+                    task['complexityScore'] = analysis['complexityScore']
+                    task['complexityReasoning'] = analysis['reasoning']
+                    break
+        
+        return tasks
+    except Exception as e:
+        print(f"Error analyzing task complexity: {str(e)}")
+        print(traceback.format_exc())
+        # Return tasks without complexity analysis if there's an error
+        return tasks
+
+def generate_subtasks_for_task(task, num_subtasks=3):
+    """Generate subtasks for a complex task"""
+    try:
+        import anthropic
+        
+        # Get API key and add debugging
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY environment variable not found. Please check your .env file.")
+        
+        print(f"Using Anthropic API key for subtask generation: {api_key[:5]}...{api_key[-5:]}")
+        
+        # Initialize Anthropic client
+        client = anthropic.Anthropic(api_key=api_key)
+        
+        # Create system prompt for subtask generation
+        system_prompt = f"""You are an AI assistant helping with task breakdown for software development. 
+You need to break down a high-level task into {num_subtasks} specific subtasks that can be implemented one by one.
+
+Subtasks should:
+1. Be specific and actionable implementation steps
+2. Follow a logical sequence
+3. Each handle a distinct part of the parent task
+4. Include clear guidance on implementation approach
+5. Have appropriate dependency chains between subtasks
+6. Collectively cover all aspects of the parent task
+
+Each subtask should have:
+- A clear, specific title
+- Detailed implementation steps
+- Dependencies on previous subtasks (if any)
+- Testing approach"""
+
+        # Create user prompt
+        user_prompt = f"""Please break down this task into {num_subtasks} specific, actionable subtasks:
+
+Task ID: {task['id']}
+Title: {task['title']}
+Description: {task['description']}
+Current details: {task.get('details', 'None provided')}
+
+Return exactly {num_subtasks} subtasks with the following JSON structure:
+[
+  {{
+    "id": "{task['id']}_1",
+    "title": "First subtask title",
+    "description": "Detailed description",
+    "dependencies": [], 
+    "details": "Implementation details"
+  }},
+  ...more subtasks...
+]
+
+Note on dependencies: Subtasks can depend on other subtasks with lower IDs. Use an empty array if there are no dependencies."""
+
+        # Call Anthropic API
+        try:
+            response = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=4000,
+                temperature=0.2,
+                system=system_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": user_prompt
+                }]
+            )
+        except Exception as api_error:
+            print(f"Anthropic API error during subtask generation: {str(api_error)}")
+            print(f"API error details: {type(api_error).__name__}")
+            raise ValueError(f"Failed to call Anthropic API for subtask generation: {str(api_error)}")
+        
+        # Extract and parse response
+        response_text = response.content[0].text
+        
+        # Find and extract JSON
+        json_start = response_text.find('[')
+        json_end = response_text.rindex(']')
+        json_content = response_text[json_start:json_end+1]
+        
+        subtasks = json.loads(json_content)
+        
+        # Ensure subtasks have proper IDs and dependencies
+        for i, subtask in enumerate(subtasks):
+            if not str(subtask['id']).startswith(f"{task['id']}_"):
+                subtask['id'] = f"{task['id']}_{i+1}"
+            subtask['parentTaskId'] = task['id']
+            subtask['status'] = 'pending'
+        
+        return subtasks
+    except Exception as e:
+        print(f"Error generating subtasks: {str(e)}")
+        print(traceback.format_exc())
+        # Return empty subtasks list if there's an error
+        return []
+
 if __name__ == '__main__':
     print("=== Starting Aider API Server ===")
     print(f"Current working directory: {os.getcwd()}")
@@ -617,6 +998,15 @@ if __name__ == '__main__':
         print(f"Failed to find git repository: {e}")
         print("The API server must be run from within a git repository")
         sys.exit(1)
+    
+    # Verify API key is loaded
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("WARNING: ANTHROPIC_API_KEY environment variable not found!")
+        print("The PRD analysis functionality will not work without a valid Anthropic API key.")
+        print("Please ensure your .env file contains a valid ANTHROPIC_API_KEY.")
+    else:
+        print(f"Anthropic API key found: {api_key[:5]}...{api_key[-5:]}")
     
     # Run the server
     print("Starting Flask server...")

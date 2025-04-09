@@ -5,11 +5,13 @@ import CloseIcon from '@mui/icons-material/Close';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
 import WebIcon from '@mui/icons-material/Web';
 import WifiIcon from '@mui/icons-material/Wifi';
+import AnalyticsIcon from '@mui/icons-material/Analytics';
 
 import ChatInterface from './ChatInterface';
 import FileManager from './FileManager';
 import WebPageAdder from './WebPageAdder';
 import TestConnection from './TestConnection';
+import PRDAnalyzer from './PRDAnalyzer';
 import api from '../services/api';
 
 const drawerWidth = 320;
@@ -18,6 +20,7 @@ const Layout = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [showWebAdder, setShowWebAdder] = useState(false);
   const [showTestConnection, setShowTestConnection] = useState(false);
+  const [showPRDAnalyzer, setShowPRDAnalyzer] = useState(false);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
@@ -81,6 +84,17 @@ const Layout = () => {
         sx={{ mb: 2 }}
       >
         Test Connection
+      </Button>
+      
+      <Button 
+        variant="outlined" 
+        color="secondary"
+        fullWidth
+        startIcon={<AnalyticsIcon />}
+        onClick={() => setShowPRDAnalyzer(true)}
+        sx={{ mb: 2 }}
+      >
+        Analyze PRD
       </Button>
       
       <Divider sx={{ my: 2 }} />
@@ -171,6 +185,13 @@ const Layout = () => {
         <TestConnection 
           open={showTestConnection} 
           onClose={() => setShowTestConnection(false)}
+        />
+      )}
+
+      {showPRDAnalyzer && (
+        <PRDAnalyzer
+          open={showPRDAnalyzer}
+          onClose={() => setShowPRDAnalyzer(false)}
         />
       )}
     </Box>
