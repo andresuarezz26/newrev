@@ -7,6 +7,8 @@ import sys
 import threading
 import time
 from pathlib import Path
+import traceback
+import logging
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -57,27 +59,57 @@ class AiderAPI:
     @staticmethod
     def initialize_coder(args=None):
         """Initialize a coder instance with optional args"""
-        coder = cli_main(argv=args, return_coder=True)
-        if not isinstance(coder, Coder):
-            raise ValueError(coder)
-        if not coder.repo:
-            raise ValueError("API can currently only be used inside a git repo")
+        logger = logging.getLogger(__name__)
+        logger.debug("\n=== Starting Coder Initialization ===")
+        logger.debug(f"Current working directory: {os.getcwd()}")
+        
+        try:
+            # Check if we're in a git repo
+            from git import Repo
+            try:
+                repo = Repo(os.getcwd(), search_parent_directories=True)
+                logger.debug(f"Found git repo at: {repo.git_dir}")
+            except Exception as e:
+                logger.error(f"Failed to find git repo: {str(e)}")
+                raise ValueError("API must be run inside a git repository")
 
-        io = AiderAPI.CaptureIO(
-            pretty=False,
-            yes=True,
-            dry_run=coder.io.dry_run,
-            encoding=coder.io.encoding,
-        )
-        # coder.io = io  # this breaks the input_history
-        coder.commands.io = io
-
-        # Force the coder to cooperate, regardless of cmd line args
-        coder.yield_stream = True
-        coder.stream = True
-        coder.pretty = False
-
-        return coder
+            logger.debug("Creating coder instance...")
+            coder = cli_main(argv=args, return_coder=True)
+            logger.debug(f"Coder instance created: {type(coder)}")
+            
+            if not isinstance(coder, Coder):
+                logger.error(f"Invalid coder type: {type(coder)}")
+                raise ValueError(f"Invalid coder instance: {coder}")
+            
+            if not coder.repo:
+                logger.error("No git repo found in coder instance")
+                raise ValueError("API can currently only be used inside a git repo")
+            
+            logger.debug(f"Coder repo path: {coder.repo.repo.git_dir}")
+            
+            io = AiderAPI.CaptureIO(
+                pretty=False,
+                yes=True,
+                dry_run=coder.io.dry_run,
+                encoding=coder.io.encoding,
+            )
+            logger.debug("Created CaptureIO instance")
+            
+            coder.commands.io = io
+            
+            # Force the coder to cooperate, regardless of cmd line args
+            coder.yield_stream = True
+            coder.stream = True
+            coder.pretty = False
+            
+            logger.debug("=== Coder initialization completed successfully ===\n")
+            return coder
+            
+        except Exception as e:
+            logger.error("\n=== Error during coder initialization ===")
+            logger.error(f"Error: {str(e)}")
+            logger.error(f"Traceback:\n{traceback.format_exc()}")
+            raise
     
     @staticmethod
     def get_announcements(coder):
@@ -88,36 +120,46 @@ class AiderAPI:
     def process_chat(coder, prompt, session_id):
         """Process a chat message and return response via socket.io"""
         def run_stream():
-            for chunk in coder.run_stream(prompt):
-                emit('message_chunk', {'chunk': chunk, 'session_id': session_id})
-            
-            emit('message_complete', {'session_id': session_id})
-            
-            # Check for edits
-            if coder.aider_edited_files:
-                emit('files_edited', {
-                    'files': list(coder.aider_edited_files),
-                    'session_id': session_id
-                })
-            
-            # Check for commits
-            if sessions[session_id].get('last_aider_commit_hash') != coder.last_aider_commit_hash:
-                if coder.last_aider_commit_hash:
-                    commits = f"{coder.last_aider_commit_hash}~1"
-                    diff = coder.repo.diff_commits(
-                        coder.pretty,
-                        commits,
-                        coder.last_aider_commit_hash,
-                    )
+            with app.app_context():
+                try:
+                    for chunk in coder.run_stream(prompt):
+                        socketio.emit('message_chunk', {'chunk': chunk, 'session_id': session_id})
                     
-                    emit('commit', {
-                        'hash': coder.last_aider_commit_hash,
-                        'message': coder.last_aider_commit_message,
-                        'diff': diff,
+                    socketio.emit('message_complete', {'session_id': session_id})
+                    
+                    # Check for edits
+                    if coder.aider_edited_files:
+                        socketio.emit('files_edited', {
+                            'files': list(coder.aider_edited_files),
+                            'session_id': session_id
+                        })
+                    
+                    # Check for commits
+                    if sessions[session_id].get('last_aider_commit_hash') != coder.last_aider_commit_hash:
+                        if coder.last_aider_commit_hash:
+                            commits = f"{coder.last_aider_commit_hash}~1"
+                            diff = coder.repo.diff_commits(
+                                coder.pretty,
+                                commits,
+                                coder.last_aider_commit_hash,
+                            )
+                            
+                            socketio.emit('commit', {
+                                'hash': coder.last_aider_commit_hash,
+                                'message': coder.last_aider_commit_message,
+                                'diff': diff,
+                                'session_id': session_id
+                            })
+                            
+                            sessions[session_id]['last_aider_commit_hash'] = coder.last_aider_commit_hash
+                except Exception as e:
+                    logger = logging.getLogger(__name__)
+                    logger.error(f"Error in process_chat: {str(e)}")
+                    logger.error(f"Traceback: {traceback.format_exc()}")
+                    socketio.emit('error', {
+                        'message': str(e),
                         'session_id': session_id
                     })
-                    
-                    sessions[session_id]['last_aider_commit_hash'] = coder.last_aider_commit_hash
         
         threading.Thread(target=run_stream).start()
         return True
@@ -131,17 +173,31 @@ class AiderAPI:
 # Helper function to get a session or create if it doesn't exist
 def get_or_create_session(session_id, create=True):
     """Get or create a session by ID"""
+    logger = logging.getLogger(__name__)
+    
+    logger.debug(f"get_or_create_session called with ID: {session_id}")
+    logger.debug(f"Current sessions: {list(sessions.keys())}")
+    
     if session_id not in sessions and create:
+        logger.debug(f"Creating new session for ID: {session_id}")
         try:
             coder = AiderAPI.initialize_coder()
+            logger.debug("Coder initialized successfully")
+            
+            # Get initial files before creating session
+            all_files = coder.get_all_relative_files()
+            inchat_files = coder.get_inchat_relative_files()
+            logger.debug(f"Found files - All: {all_files}, InChat: {inchat_files}")
+            
             sessions[session_id] = {
                 'coder': coder,
                 'messages': [],
-                'files': coder.get_inchat_relative_files(),
+                'files': inchat_files,
                 'last_aider_commit_hash': coder.last_aider_commit_hash,
                 'input_history': list(coder.io.get_input_history()),
                 'created_at': time.time()
             }
+            logger.debug(f"Session created successfully")
             
             # Add initialization announcements
             announcements = AiderAPI.get_announcements(coder)
@@ -153,9 +209,14 @@ def get_or_create_session(session_id, create=True):
                 'role': 'assistant', 
                 'content': 'How can I help you?'
             })
+            logger.debug("Added initial messages to session")
             
         except Exception as e:
+            logger.error(f"Failed to create session: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return None, str(e)
+    else:
+        logger.debug(f"Using existing session: {session_id}")
     
     return sessions.get(session_id), None
 
@@ -210,23 +271,60 @@ def send_message():
 @app.route('/api/get_files', methods=['GET'])
 def get_files():
     """Get all files and in-chat files"""
-    session_id = request.args.get('session_id')
+    logger = logging.getLogger(__name__)
+    logger.debug("get_files endpoint called")
     
-    if not session_id:
-        return jsonify({'status': 'error', 'message': 'Session ID is required'}), 400
-    
-    session, error = get_or_create_session(session_id)
-    
-    if error:
-        return jsonify({'status': 'error', 'message': error}), 500
-    
-    coder = session['coder']
-    
-    return jsonify({
-        'status': 'success',
-        'all_files': coder.get_all_relative_files(),
-        'inchat_files': coder.get_inchat_relative_files()
-    })
+    try:
+        session_id = request.args.get('session_id')
+        logger.debug(f"Session ID received: {session_id}")
+        
+        if not session_id:
+            logger.error("No session ID provided")
+            return jsonify({'status': 'error', 'message': 'Session ID is required'}), 400
+        
+        logger.debug(f"Getting session for ID: {session_id}")
+        session, error = get_or_create_session(session_id)
+        
+        if error:
+            logger.error(f"Error getting session: {error}")
+            return jsonify({'status': 'error', 'message': error}), 500
+        
+        if not session:
+            logger.error(f"No session found for ID: {session_id}")
+            return jsonify({'status': 'error', 'message': 'Session not found'}), 404
+        
+        logger.debug("Session retrieved successfully")
+        coder = session['coder']
+        
+        try:
+            all_files = coder.get_all_relative_files()
+            inchat_files = coder.get_inchat_relative_files()
+            logger.debug(f"Files retrieved - All: {all_files}, InChat: {inchat_files}")
+            
+            response = {
+                'status': 'success',
+                'all_files': all_files,
+                'inchat_files': inchat_files
+            }
+            logger.debug(f"Returning response: {response}")
+            
+            return jsonify(response)
+            
+        except Exception as e:
+            logger.error(f"Error getting files: {str(e)}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return jsonify({
+                'status': 'error',
+                'message': f'Error retrieving files: {str(e)}'
+            }), 500
+            
+    except Exception as e:
+        logger.error(f"Unexpected error in get_files: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'status': 'error',
+            'message': f'Unexpected error: {str(e)}'
+        }), 500
 
 @app.route('/api/add_files', methods=['POST'])
 def add_files():
@@ -411,17 +509,27 @@ Include:
     prd_content = []
     
     def collect_prd():
-        for chunk in coder.run_stream(prompt):
-            prd_content.append(chunk)
-            emit('prd_chunk', {'chunk': chunk, 'session_id': session_id})
-        
-        emit('prd_complete', {
-            'prd': ''.join(prd_content),
-            'session_id': session_id
-        })
-        
-        # Add to messages
-        session['messages'].append({'role': 'assistant', 'content': ''.join(prd_content)})
+        with app.app_context():
+            try:
+                for chunk in coder.run_stream(prompt):
+                    prd_content.append(chunk)
+                    socketio.emit('prd_chunk', {'chunk': chunk, 'session_id': session_id})
+                
+                socketio.emit('prd_complete', {
+                    'prd': ''.join(prd_content),
+                    'session_id': session_id
+                })
+                
+                # Add to messages
+                session['messages'].append({'role': 'assistant', 'content': ''.join(prd_content)})
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error in collect_prd: {str(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                socketio.emit('error', {
+                    'message': str(e),
+                    'session_id': session_id
+                })
     
     threading.Thread(target=collect_prd).start()
     
@@ -472,27 +580,37 @@ Generate a list of implementation tasks and subtasks in JSON format:
     tasks_content = []
     
     def collect_tasks():
-        for chunk in coder.run_stream(prompt):
-            tasks_content.append(chunk)
-            emit('tasks_chunk', {'chunk': chunk, 'session_id': session_id})
-        
-        tasks_json = ''.join(tasks_content)
-        try:
-            # Try to parse as JSON
-            tasks = json.loads(tasks_json)
-            emit('tasks_complete', {
-                'tasks': tasks,
-                'session_id': session_id
-            })
-        except json.JSONDecodeError:
-            # If not valid JSON, send as string
-            emit('tasks_complete', {
-                'tasks_text': tasks_json,
-                'session_id': session_id
-            })
-        
-        # Add to messages
-        session['messages'].append({'role': 'assistant', 'content': tasks_json})
+        with app.app_context():
+            try:
+                for chunk in coder.run_stream(prompt):
+                    tasks_content.append(chunk)
+                    socketio.emit('tasks_chunk', {'chunk': chunk, 'session_id': session_id})
+                
+                tasks_json = ''.join(tasks_content)
+                try:
+                    # Try to parse as JSON
+                    tasks = json.loads(tasks_json)
+                    socketio.emit('tasks_complete', {
+                        'tasks': tasks,
+                        'session_id': session_id
+                    })
+                except json.JSONDecodeError:
+                    # If not valid JSON, send as string
+                    socketio.emit('tasks_complete', {
+                        'tasks_text': tasks_json,
+                        'session_id': session_id
+                    })
+                
+                # Add to messages
+                session['messages'].append({'role': 'assistant', 'content': tasks_json})
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error in collect_tasks: {str(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                socketio.emit('error', {
+                    'message': str(e),
+                    'session_id': session_id
+                })
     
     threading.Thread(target=collect_tasks).start()
     
@@ -520,88 +638,111 @@ def execute_tasks():
         session['task_results'] = []
     
     def execute_task(task, subtask=None):
-        description = task["description"]
-        if subtask:
-            task_name = f"{task['name']} - {subtask['name']}"
-            description += f" - {subtask['description']}"
-        else:
-            task_name = task['name']
-        
-        prompt = f"""
+        with app.app_context():
+            try:
+                description = task["description"]
+                if subtask:
+                    task_name = f"{task['name']} - {subtask['name']}"
+                    description += f" - {subtask['description']}"
+                else:
+                    task_name = task['name']
+                
+                prompt = f"""
 I need you to implement this task:
 {description}
 
 Please write or modify the necessary code to complete this task.
 """
-        
-        # Add task execution start message
-        emit('task_started', {
-            'task_name': task_name,
-            'description': description,
-            'session_id': session_id
-        })
-        
-        # Execute the task
-        response_content = []
-        for chunk in coder.run_stream(prompt):
-            response_content.append(chunk)
-            emit('task_chunk', {
-                'task_name': task_name,
-                'chunk': chunk,
-                'session_id': session_id
-            })
-        
-        result = ''.join(response_content)
-        
-        # Check if files were edited
-        edited_files = list(coder.aider_edited_files) if coder.aider_edited_files else []
-        
-        # Check if a commit was made
-        commit_hash = coder.last_aider_commit_hash
-        commit_message = coder.last_aider_commit_message if commit_hash else None
-        
-        # Create result object
-        task_result = {
-            'task_name': task_name,
-            'description': description,
-            'result': result,
-            'edited_files': edited_files,
-            'commit_hash': commit_hash,
-            'commit_message': commit_message
-        }
-        
-        # Add to session results
-        session['task_results'].append(task_result)
-        
-        # Send completion event
-        emit('task_completed', {
-            'task_result': task_result,
-            'session_id': session_id
-        })
-        
-        return task_result
+                
+                # Add task execution start message
+                socketio.emit('task_started', {
+                    'task_name': task_name,
+                    'description': description,
+                    'session_id': session_id
+                })
+                
+                # Execute the task
+                response_content = []
+                for chunk in coder.run_stream(prompt):
+                    response_content.append(chunk)
+                    socketio.emit('task_chunk', {
+                        'task_name': task_name,
+                        'chunk': chunk,
+                        'session_id': session_id
+                    })
+                
+                result = ''.join(response_content)
+                
+                # Check if files were edited
+                edited_files = list(coder.aider_edited_files) if coder.aider_edited_files else []
+                
+                # Check if a commit was made
+                commit_hash = coder.last_aider_commit_hash
+                commit_message = coder.last_aider_commit_message if commit_hash else None
+                
+                # Create result object
+                task_result = {
+                    'task_name': task_name,
+                    'description': description,
+                    'result': result,
+                    'edited_files': edited_files,
+                    'commit_hash': commit_hash,
+                    'commit_message': commit_message
+                }
+                
+                # Add to session results
+                session['task_results'].append(task_result)
+                
+                # Send completion event
+                socketio.emit('task_completed', {
+                    'task_result': task_result,
+                    'session_id': session_id
+                })
+                
+                return task_result
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error in execute_task: {str(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                socketio.emit('error', {
+                    'message': str(e),
+                    'session_id': session_id
+                })
+                return None
     
     def run_tasks():
-        all_results = []
-        
-        emit('tasks_execution_started', {
-            'num_tasks': len(tasks),
-            'session_id': session_id
-        })
-        
-        for task in tasks:
-            if task.get("subtasks"):
-                for subtask in task["subtasks"]:
-                    result = execute_task(task, subtask)
-                    all_results.append(result)
-            else:
-                result = execute_task(task)
-                all_results.append(result)
-        
-        emit('tasks_execution_completed', {
-            'results': all_results,
-            'session_id': session_id
-        })
+        with app.app_context():
+            try:
+                all_results = []
+                
+                socketio.emit('tasks_execution_started', {
+                    'num_tasks': len(tasks),
+                    'session_id': session_id
+                })
+                
+                for task in tasks:
+                    if task.get("subtasks"):
+                        for subtask in task["subtasks"]:
+                            result = execute_task(task, subtask)
+                            if result:
+                                all_results.append(result)
+                    else:
+                        result = execute_task(task)
+                        if result:
+                            all_results.append(result)
+                
+                socketio.emit('tasks_execution_completed', {
+                    'results': all_results,
+                    'session_id': session_id
+                })
+            except Exception as e:
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error in run_tasks: {str(e)}")
+                logger.error(f"Traceback: {traceback.format_exc()}")
+                socketio.emit('error', {
+                    'message': str(e),
+                    'session_id': session_id
+                })
     
     threading.Thread(target=run_tasks).start()
     
@@ -635,4 +776,45 @@ def handle_disconnect():
     print('Client disconnected')
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True) 
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler('aider_api.log')
+        ]
+    )
+    
+    # Set Flask and Werkzeug loggers to DEBUG
+    for logger_name in ['flask', 'werkzeug', '__main__', 'aider']:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.DEBUG)
+        # Ensure the logger propagates to the root logger
+        logger.propagate = True
+    
+    logger = logging.getLogger(__name__)
+    logger.info("=== Starting Aider API Server ===")
+    logger.info(f"Current working directory: {os.getcwd()}")
+    
+    # Check if we're in a git repo
+    try:
+        from git import Repo
+        repo = Repo(os.getcwd(), search_parent_directories=True)
+        logger.info(f"Found git repository at: {repo.git_dir}")
+    except Exception as e:
+        logger.error(f"Failed to find git repository: {e}")
+        logger.error("The API server must be run from within a git repository")
+        sys.exit(1)
+    
+    # Run the server
+    logger.info("Starting Flask server...")
+    socketio.run(
+        app,
+        host='0.0.0.0',
+        port=5000,
+        debug=True,
+        use_reloader=True,
+        log_output=True,
+        allow_unsafe_werkzeug=True
+    ) 
