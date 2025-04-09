@@ -12,13 +12,12 @@ import {
     ListItemText,
     CircularProgress
 } from '@mui/material';
-import socketIOClient from 'socket.io-client';
+import { addEventListener, removeEventListener, sendTestMessage } from '../services/api';
 
 const TestConnection = ({ open, onClose }) => {
     const [apiStatus, setApiStatus] = useState(null);
-    const [socketStatus, setSocketStatus] = useState('disconnected');
+    const [connectionStatus, setConnectionStatus] = useState('disconnected');
     const [messages, setMessages] = useState([]);
-    const [socket, setSocket] = useState(null);
     const [isLoading, setIsLoading] = useState(true);
     const [streamingContent, setStreamingContent] = useState('');
     const [isSending, setIsSending] = useState(false);
@@ -41,63 +40,68 @@ const TestConnection = ({ open, onClose }) => {
         testApiConnection();
     }, []);
 
-    // Handle Socket.IO connection and events
+    // Handle event stream connection and events
     useEffect(() => {
-        // Create socket connection
-        const newSocket = socketIOClient('http://localhost:5000', {
-            transports: ['websocket'],
-            reconnection: true,
-            reconnectionAttempts: 5
-        });
+        // Connection event handler
+        const handleConnected = (data) => {
+            console.log('Event stream connected:', data);
+            setConnectionStatus('connected');
+        };
+
+        // Message chunk handler
+        const handleMessageChunk = (data) => {
+            console.log('Received chunk:', data);
+            if (data.chunk) {
+                setStreamingContent(current => current + data.chunk);
+            }
+        };
+
+        // Message complete handler
+        const handleMessageComplete = () => {
+            console.log('Message complete');
+            if (streamingContent) {
+                setMessages(current => [...current, streamingContent]);
+                setStreamingContent('');
+            }
+            setIsSending(false);
+        };
+
+        // Error handler
+        const handleError = (error) => {
+            console.error('Connection error:', error);
+            setConnectionStatus('error');
+            setIsSending(false);
+        };
 
         // Set up event listeners
-        newSocket.on('connect', () => {
-            console.log('Socket.IO connected');
-            setSocketStatus('connected');
-            setSocket(newSocket);
-        });
-
-        newSocket.on('disconnect', () => {
-            console.log('Socket.IO disconnected');
-            setSocketStatus('disconnected');
-        });
-
-        newSocket.on('connect_error', (error) => {
-            console.error('Socket.IO connection error:', error);
-            setSocketStatus('error');
-        });
-
-        // Handle incoming message chunks
-        newSocket.on('message_chunk', (data) => {
-            console.log('Received chunk:', data);
-            setStreamingContent(current => current + (data.chunk || ''));
-        });
-
-        // Handle message completion
-        newSocket.on('message_complete', (data) => {
-            console.log('Message complete:', data);
-            setMessages(current => [...current, streamingContent]);
-            setStreamingContent('');
-            setIsSending(false);
-        });
+        addEventListener('connected', handleConnected);
+        addEventListener('message_chunk', handleMessageChunk);
+        addEventListener('message_complete', handleMessageComplete);
+        addEventListener('error', handleError);
 
         // Cleanup function
         return () => {
-            console.log('Cleaning up socket connection');
-            newSocket.disconnect();
+            removeEventListener('connected', handleConnected);
+            removeEventListener('message_chunk', handleMessageChunk);
+            removeEventListener('message_complete', handleMessageComplete);
+            removeEventListener('error', handleError);
         };
-    }, []);
+    }, [streamingContent]);
 
-    const sendTestMessage = () => {
-        if (socket && socketStatus === 'connected') {
-            setIsSending(true);
-            setStreamingContent(''); // Clear previous content
-            socket.emit('test_message', {
-                session_id: 'test_session',
-                message: 'Hello from client!'
-            });
-        } else {
-            console.error('Cannot send message: Socket not connected');
+    const handleSendTestMessage = async () => {
+        if (connectionStatus !== 'connected') {
+            console.error('Cannot send message: Not connected');
+            return;
+        }
+
+        setIsSending(true);
+        setStreamingContent(''); // Clear previous content
+        
+        try {
+            await sendTestMessage('Hello from client!');
+        } catch (error) {
+            console.error('Error sending test message:', error);
+            setIsSending(false);
         }
     };
 
@@ -122,11 +126,11 @@ const TestConnection = ({ open, onClose }) => {
                 </Box>
 
                 <Box sx={{ mb: 3 }}>
-                    <Typography variant="h6" gutterBottom>Socket.IO Status: {socketStatus}</Typography>
+                    <Typography variant="h6" gutterBottom>Connection Status: {connectionStatus}</Typography>
                     <Button 
                         variant="contained" 
-                        onClick={sendTestMessage} 
-                        disabled={socketStatus !== 'connected' || isSending}
+                        onClick={handleSendTestMessage} 
+                        disabled={connectionStatus !== 'connected' || isSending}
                         sx={{ mt: 1 }}
                     >
                         {isSending ? 'Sending...' : 'Send Test Message'}
@@ -150,28 +154,34 @@ const TestConnection = ({ open, onClose }) => {
                 <Box>
                     <Typography variant="h6" gutterBottom>Received Messages:</Typography>
                     <List>
-                        {messages.map((msg, index) => (
-                            <ListItem key={index}>
-                                <ListItemText
-                                    primary={
-                                        <Box>
-                                            <Typography variant="caption" color="textSecondary">
-                                                {new Date().toLocaleString()}
-                                            </Typography>
-                                            <pre style={{ 
-                                                backgroundColor: '#f5f5f5', 
-                                                padding: '10px', 
-                                                borderRadius: '4px',
-                                                overflow: 'auto',
-                                                marginTop: '8px'
-                                            }}>
-                                                {msg}
-                                            </pre>
-                                        </Box>
-                                    }
-                                />
+                        {messages.length > 0 ? (
+                            messages.map((msg, index) => (
+                                <ListItem key={index}>
+                                    <ListItemText
+                                        primary={
+                                            <Box>
+                                                <Typography variant="caption" color="textSecondary">
+                                                    {new Date().toLocaleString()}
+                                                </Typography>
+                                                <pre style={{ 
+                                                    backgroundColor: '#f5f5f5', 
+                                                    padding: '10px', 
+                                                    borderRadius: '4px',
+                                                    overflow: 'auto',
+                                                    marginTop: '8px'
+                                                }}>
+                                                    {msg}
+                                                </pre>
+                                            </Box>
+                                        }
+                                    />
+                                </ListItem>
+                            ))
+                        ) : (
+                            <ListItem>
+                                <ListItemText primary="No messages received yet" />
                             </ListItem>
-                        ))}
+                        )}
                     </List>
                 </Box>
             </DialogContent>

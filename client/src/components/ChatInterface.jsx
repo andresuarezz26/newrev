@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, TextField, Paper, Typography, Box, Divider, CircularProgress, IconButton } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
-import api, { socket, SESSION_ID } from '../services/api';
+import api, { addEventListener, removeEventListener, SESSION_ID } from '../services/api';
 
 const ChatInterface = () => {
   const [messages, setMessages] = useState([]);
@@ -29,7 +29,7 @@ const ChatInterface = () => {
     initSession();
   }, []);
 
-  // Effect to set up socket listeners
+  // Effect to set up event listeners
   useEffect(() => {
     // Message chunk handler
     const handleMessageChunk = (data) => {
@@ -44,11 +44,12 @@ const ChatInterface = () => {
     const handleMessageComplete = (data) => {
       console.log('Message complete received:', data);
       if (data.session_id === SESSION_ID) {
-        console.log('Message complete received:', data);
-        setMessages((prev) => [
-          ...prev,
-          { role: 'assistant', content: streamingContent }
-        ]);
+        if (streamingContent) {
+          setMessages((prev) => [
+            ...prev,
+            { role: 'assistant', content: streamingContent }
+          ]);
+        }
         setStreamingContent('');
         setIsLoading(false);
       }
@@ -83,18 +84,31 @@ const ChatInterface = () => {
       }
     };
 
-    // Set up socket event listeners
-    socket.on('message_chunk', handleMessageChunk);
-    socket.on('message_complete', handleMessageComplete);
-    socket.on('files_edited', handleFilesEdited);
-    socket.on('commit', handleCommit);
+    // Error handler
+    const handleError = (data) => {
+      if (data.session_id === SESSION_ID) {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'error', content: data.message }
+        ]);
+        setIsLoading(false);
+      }
+    };
+
+    // Set up event listeners
+    addEventListener('message_chunk', handleMessageChunk);
+    addEventListener('message_complete', handleMessageComplete);
+    addEventListener('files_edited', handleFilesEdited);
+    addEventListener('commit', handleCommit);
+    addEventListener('error', handleError);
 
     // Clean up event listeners
     return () => {
-      socket.off('message_chunk', handleMessageChunk);
-      socket.off('message_complete', handleMessageComplete);
-      socket.off('files_edited', handleFilesEdited);
-      socket.off('commit', handleCommit);
+      removeEventListener('message_chunk', handleMessageChunk);
+      removeEventListener('message_complete', handleMessageComplete);
+      removeEventListener('files_edited', handleFilesEdited);
+      removeEventListener('commit', handleCommit);
+      removeEventListener('error', handleError);
     };
   }, [streamingContent]);
 
@@ -119,7 +133,7 @@ const ChatInterface = () => {
     
     try {
       await api.sendMessage(userMessage);
-      // The response will come via socket events
+      // The response will come via event listeners
     } catch (error) {
       console.error('Error sending message:', error);
       setIsLoading(false);
@@ -180,7 +194,12 @@ const ChatInterface = () => {
         
         {role === 'commit' && message.diff && (
           <Box mt={1}>
-            <Button size="small" variant="outlined" color="primary" onClick={() => alert('Undo not implemented yet')}>
+            <Button 
+              size="small" 
+              variant="outlined" 
+              color="primary" 
+              onClick={() => api.undoCommit(message.hash)}
+            >
               Undo Commit
             </Button>
             <Typography 

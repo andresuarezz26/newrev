@@ -1,5 +1,4 @@
 import axios from 'axios';
-import io from 'socket.io-client';
 import { v4 as uuidv4 } from 'uuid';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
@@ -10,25 +9,128 @@ if (!localStorage.getItem('sessionId')) {
   localStorage.setItem('sessionId', SESSION_ID);
 }
 
-// Socket.io connection
-export const socket = io(API_URL.replace('/api', ''), {
-  transports: ['websocket'],
-  reconnection: true,
-  reconnectionDelay: 1000,
-  reconnectionAttempts: 10
-});
+// Event listeners
+const eventListeners = {
+  connected: [],
+  message_chunk: [],
+  message_complete: [],
+  files_edited: [],
+  commit: [],
+  error: []
+};
 
-socket.on('connect', () => {
-  console.log('Connected to socket server');
-});
+// Create EventSource for SSE
+let eventSource = null;
 
-socket.on('error', (error) => {
-  console.error('Socket error:', error);
-});
+// Function to connect to SSE stream
+const connectToEventStream = () => {
+  if (eventSource) {
+    eventSource.close();
+  }
 
-socket.on('disconnect', () => {
-  console.log('Disconnected from socket server');
-});
+  // Create new EventSource connection
+  eventSource = new EventSource(`${API_URL}/stream?session_id=${SESSION_ID}`);
+  
+  // Set up event listeners
+  eventSource.addEventListener('connected', (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Connected to event stream:', data);
+    
+    // Notify listeners
+    eventListeners.connected.forEach(listener => listener(data));
+  });
+  
+  eventSource.addEventListener('message_chunk', (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Received message chunk:', data);
+    
+    // Notify listeners
+    eventListeners.message_chunk.forEach(listener => listener(data));
+  });
+  
+  eventSource.addEventListener('message_complete', (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Message complete:', data);
+    
+    // Notify listeners
+    eventListeners.message_complete.forEach(listener => listener(data));
+  });
+  
+  eventSource.addEventListener('files_edited', (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Files edited:', data);
+    
+    // Notify listeners
+    eventListeners.files_edited.forEach(listener => listener(data));
+  });
+  
+  eventSource.addEventListener('commit', (event) => {
+    const data = JSON.parse(event.data);
+    console.log('Commit:', data);
+    
+    // Notify listeners
+    eventListeners.commit.forEach(listener => listener(data));
+  });
+  
+  eventSource.addEventListener('error', (event) => {
+    let data;
+    
+    try {
+      data = JSON.parse(event.data);
+      console.error('Error from server:', data);
+    } catch (e) {
+      data = { message: 'Connection error' };
+      console.error('EventSource error:', e);
+    }
+    
+    // Notify listeners
+    eventListeners.error.forEach(listener => listener(data));
+  });
+  
+  eventSource.onerror = (error) => {
+    console.error('EventSource error:', error);
+    
+    // Attempt to reconnect after a delay if connection was lost
+    if (eventSource.readyState === EventSource.CLOSED) {
+      console.log('Reconnecting to event stream in 3 seconds...');
+      setTimeout(connectToEventStream, 3000);
+    }
+  };
+};
+
+// Add event listener
+const addEventListener = (event, callback) => {
+  if (eventListeners[event]) {
+    eventListeners[event].push(callback);
+  }
+};
+
+// Remove event listener
+const removeEventListener = (event, callback) => {
+  if (eventListeners[event]) {
+    const index = eventListeners[event].indexOf(callback);
+    if (index !== -1) {
+      eventListeners[event].splice(index, 1);
+    }
+  }
+};
+
+// Initialize the connection
+connectToEventStream();
+
+// Create a test message function to replace socket.emit
+const sendTestMessage = async (message) => {
+  try {
+    const response = await axios.post(`${API_URL}/test_message`, {
+      session_id: SESSION_ID,
+      message
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Error sending test message:', error);
+    throw error;
+  }
+};
 
 // API service
 const api = {
@@ -198,5 +300,11 @@ const api = {
   }
 };
 
-export { SESSION_ID };
+export { 
+  SESSION_ID, 
+  addEventListener, 
+  removeEventListener,
+  sendTestMessage
+};
+
 export default api; 

@@ -1,13 +1,20 @@
 import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import socketIOClient from 'socket.io-client';
 import App from './App';
+
+// Simple function to create a unique session ID
+const generateSessionId = () => {
+    return 'test_session_' + Math.random().toString(36).substring(2, 15);
+};
+
+const SESSION_ID = generateSessionId();
 
 const TestConnection = () => {
     const [apiStatus, setApiStatus] = useState(null);
-    const [socketStatus, setSocketStatus] = useState('disconnected');
+    const [connectionStatus, setConnectionStatus] = useState('disconnected');
     const [messages, setMessages] = useState([]);
-    const [socket, setSocket] = useState(null);
+    const [streamingContent, setStreamingContent] = useState('');
+    const [eventSource, setEventSource] = useState(null);
 
     useEffect(() => {
         // Test HTTP endpoint
@@ -21,38 +28,61 @@ const TestConnection = () => {
             }
         };
 
-        // Initialize Socket.IO connection
-        const socket = socketIOClient('http://localhost:5000');
-        setSocket(socket);
+        // Initialize EventSource connection
+        const source = new EventSource(`http://localhost:5000/api/stream?session_id=${SESSION_ID}`);
+        setEventSource(source);
 
-        socket.on('connect', () => {
-            setSocketStatus('connected');
-            console.log('Socket.IO connected');
+        source.addEventListener('connected', (event) => {
+            setConnectionStatus('connected');
+            console.log('EventSource connected:', JSON.parse(event.data));
         });
 
-        socket.on('disconnect', () => {
-            setSocketStatus('disconnected');
-            console.log('Socket.IO disconnected');
+        source.addEventListener('message_chunk', (event) => {
+            const data = JSON.parse(event.data);
+            console.log('Received message chunk:', data);
+            if (data.chunk) {
+                setStreamingContent(current => current + data.chunk);
+            }
         });
 
-        socket.on('test_response', (data) => {
-            console.log('Received test response:', data);
-            setMessages(prev => [...prev, data]);
+        source.addEventListener('message_complete', (event) => {
+            console.log('Message complete:', JSON.parse(event.data));
+            if (streamingContent) {
+                setMessages(prev => [...prev, streamingContent]);
+                setStreamingContent('');
+            }
         });
+
+        source.onerror = (error) => {
+            console.error('EventSource error:', error);
+            setConnectionStatus('error');
+        };
 
         testApiConnection();
 
         return () => {
-            socket.disconnect();
+            source.close();
         };
-    }, []);
+    }, [streamingContent]);
 
-    const sendTestMessage = () => {
-        if (socket) {
-            socket.emit('test_message', {
-                session_id: 'test_session',
-                message: 'Hello from client!'
-            });
+    const sendTestMessage = async () => {
+        if (connectionStatus === 'connected') {
+            try {
+                const response = await fetch('http://localhost:5000/api/test_message', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        session_id: SESSION_ID,
+                        message: 'Hello from client!'
+                    })
+                });
+                const data = await response.json();
+                console.log('Test message sent:', data);
+            } catch (error) {
+                console.error('Error sending test message:', error);
+            }
         }
     };
 
@@ -66,18 +96,29 @@ const TestConnection = () => {
             </div>
 
             <div style={{ marginBottom: '20px' }}>
-                <h3>Socket.IO Status: {socketStatus}</h3>
-                <button onClick={sendTestMessage} disabled={socketStatus !== 'connected'}>
+                <h3>Connection Status: {connectionStatus}</h3>
+                <button onClick={sendTestMessage} disabled={connectionStatus !== 'connected'}>
                     Send Test Message
                 </button>
             </div>
+
+            {streamingContent && (
+                <div style={{ marginBottom: '20px' }}>
+                    <h3>Streaming Content:</h3>
+                    <pre style={{ backgroundColor: '#f5f5f5', padding: '10px' }}>
+                        {streamingContent}
+                    </pre>
+                </div>
+            )}
 
             <div>
                 <h3>Received Messages:</h3>
                 <ul>
                     {messages.map((msg, index) => (
                         <li key={index}>
-                            <pre>{console.log("msg: "+ JSON.stringify(msg, null, 2))}</pre>
+                            <pre style={{ backgroundColor: '#f5f5f5', padding: '10px' }}>
+                                {msg}
+                            </pre>
                         </li>
                     ))}
                 </ul>

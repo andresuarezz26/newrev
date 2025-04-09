@@ -9,14 +9,12 @@ import time
 from pathlib import Path
 import traceback
 import logging
-import socket
 import flask
-import flask_socketio
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory, Response, stream_with_context
 from flask_cors import CORS
-from flask_socketio import SocketIO, emit
 from werkzeug.utils import secure_filename
 from datetime import datetime
+import queue
 
 # Add the parent directory to sys.path to be able to import aider modules
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,11 +27,13 @@ from aider.main import main as cli_main
 from aider.scrape import Scraper
 
 app = Flask(__name__)
-CORS(app)
-socketio = SocketIO(app, cors_allowed_origins="*")
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Store sessions by session_id
 sessions = {}
+
+# Message queues for session streaming
+message_queues = {}
 
 class AiderAPI:
     """API wrapper for Aider functionality"""
@@ -122,51 +122,73 @@ class AiderAPI:
     
     @staticmethod
     def process_chat(coder, prompt, session_id):
-        """Process a chat message and return response via socket.io"""
+        """Process a chat message and queue response for streaming"""
         def run_stream():
-            with app.app_context():
-                try:
-                    for chunk in coder.run_stream(prompt):
-                        print(f"Chunk: {chunk}")
-                        socketio.emit('message_chunk', {'chunk': chunk, 'session_id': session_id})
-                    
-                    socketio.emit('message_complete', {'session_id': session_id})
-                    
-                    # Check for edits
-                    if coder.aider_edited_files:
-                        socketio.emit('files_edited', {
-                            'files': list(coder.aider_edited_files),
-                            'session_id': session_id
-                        })
-                    
-                    # Check for commits
-                    if sessions[session_id].get('last_aider_commit_hash') != coder.last_aider_commit_hash:
-                        if coder.last_aider_commit_hash:
-                            commits = f"{coder.last_aider_commit_hash}~1"
-                            diff = coder.repo.diff_commits(
-                                coder.pretty,
-                                commits,
-                                coder.last_aider_commit_hash,
-                            )
-                            
-                            socketio.emit('commit', {
+            try:
+                # Ensure the session has a message queue
+                if session_id not in message_queues:
+                    message_queues[session_id] = queue.Queue()
+                
+                # Get the queue for this session
+                message_queue = message_queues[session_id]
+                
+                # Process the prompt and stream response
+                for chunk in coder.run_stream(prompt):
+                    # Add chunk to the queue
+                    message_queue.put({
+                        'type': 'message_chunk',
+                        'data': {'chunk': chunk, 'session_id': session_id}
+                    })
+                
+                # Mark message as complete
+                message_queue.put({
+                    'type': 'message_complete',
+                    'data': {'session_id': session_id}
+                })
+                
+                # Check for edits
+                if coder.aider_edited_files:
+                    message_queue.put({
+                        'type': 'files_edited',
+                        'data': {'files': list(coder.aider_edited_files), 'session_id': session_id}
+                    })
+                
+                # Check for commits
+                if sessions[session_id].get('last_aider_commit_hash') != coder.last_aider_commit_hash:
+                    if coder.last_aider_commit_hash:
+                        commits = f"{coder.last_aider_commit_hash}~1"
+                        diff = coder.repo.diff_commits(
+                            coder.pretty,
+                            commits,
+                            coder.last_aider_commit_hash,
+                        )
+                        
+                        message_queue.put({
+                            'type': 'commit',
+                            'data': {
                                 'hash': coder.last_aider_commit_hash,
                                 'message': coder.last_aider_commit_message,
                                 'diff': diff,
                                 'session_id': session_id
-                            })
-                            
-                            sessions[session_id]['last_aider_commit_hash'] = coder.last_aider_commit_hash
-                except Exception as e:
-                    logger = logging.getLogger(__name__)
-                    logger.error(f"Error in process_chat: {str(e)}")
-                    logger.error(f"Traceback: {traceback.format_exc()}")
-                    socketio.emit('error', {
-                        'message': str(e),
-                        'session_id': session_id
+                            }
+                        })
+                        
+                        sessions[session_id]['last_aider_commit_hash'] = coder.last_aider_commit_hash
+            except Exception as e:
+                print(f"Error in process_chat: {str(e)}")
+                print(traceback.format_exc())
+                
+                # Add error to queue
+                if session_id in message_queues:
+                    message_queues[session_id].put({
+                        'type': 'error',
+                        'data': {'message': str(e), 'session_id': session_id}
                     })
         
-        threading.Thread(target=run_stream).start()
+        # Create and start thread
+        thread = threading.Thread(target=run_stream)
+        thread.daemon = True
+        thread.start()
         return True
 
     @staticmethod
@@ -270,6 +292,101 @@ def send_message():
     
     # Process message asynchronously
     AiderAPI.process_chat(coder, message, session_id)
+    
+    return jsonify({'status': 'success'})
+
+# Server-Sent Events (SSE) endpoint for streaming responses
+@app.route('/api/stream', methods=['GET'])
+def message_stream():
+    """Stream messages for a session using Server-Sent Events"""
+    session_id = request.args.get('session_id')
+    
+    if not session_id:
+        return jsonify({'status': 'error', 'message': 'Session ID is required'}), 400
+    
+    # Create a queue for this session if it doesn't exist
+    if session_id not in message_queues:
+        message_queues[session_id] = queue.Queue()
+    
+    # Get the queue for this session
+    message_queue = message_queues[session_id]
+    
+    # Define the generator function for SSE
+    def generate():
+        try:
+            # First event to establish connection
+            yield 'event: connected\ndata: {"session_id": "' + session_id + '"}\n\n'
+            
+            while True:
+                try:
+                    # Try to get a message from the queue, timeout after 30 seconds
+                    message = message_queue.get(timeout=30)
+                    
+                    # Format the message as an SSE event
+                    event_type = message['type']
+                    data = json.dumps(message['data'])
+                    
+                    yield f"event: {event_type}\ndata: {data}\n\n"
+                    
+                    # If this is a message_complete event, also yield a keep-alive
+                    if event_type == 'message_complete':
+                        yield 'event: keep-alive\ndata: {}\n\n'
+                        
+                except queue.Empty:
+                    # Send a keep-alive event every 30 seconds to maintain the connection
+                    yield 'event: keep-alive\ndata: {}\n\n'
+        except GeneratorExit:
+            # Client disconnected
+            print(f"Client disconnected from stream: {session_id}")
+    
+    return Response(
+        stream_with_context(generate()),
+        mimetype='text/event-stream',
+        headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'  # Disable buffering for Nginx
+        }
+    )
+
+@app.route('/api/test_message', methods=['POST'])
+def test_message():
+    """Test endpoint for message streaming"""
+    data = request.json
+    session_id = data.get('session_id')
+    message = data.get('message', 'No message provided')
+    
+    if not session_id:
+        return jsonify({'status': 'error', 'message': 'Session ID is required'}), 400
+    
+    # Create a queue for this session if it doesn't exist
+    if session_id not in message_queues:
+        message_queues[session_id] = queue.Queue()
+    
+    # Create a simple response
+    response = {
+        'session_id': session_id,
+        'message': f"Server received: {message}",
+        'timestamp': time.time()
+    }
+    
+    # Add to the message queue as chunks
+    response_str = json.dumps(response)
+    chunk_size = 10  # Small chunk size for testing
+    
+    for i in range(0, len(response_str), chunk_size):
+        chunk = response_str[i:i+chunk_size]
+        message_queues[session_id].put({
+            'type': 'message_chunk',
+            'data': {'chunk': chunk, 'session_id': session_id}
+        })
+        # Small sleep to simulate streaming
+        time.sleep(0.1)
+    
+    # Mark as complete
+    message_queues[session_id].put({
+        'type': 'message_complete',
+        'data': {'session_id': session_id}
+    })
     
     return jsonify({'status': 'success'})
 
@@ -476,301 +593,6 @@ def clear_history():
     
     return jsonify({'status': 'success'})
 
-# PRD and Task Automation Endpoints
-@app.route('/api/generate_prd', methods=['POST'])
-def generate_prd():
-    """Generate a PRD from a description"""
-    data = request.json
-    session_id = data.get('session_id')
-    description = data.get('description')
-    
-    if not session_id or not description:
-        return jsonify({'status': 'error', 'message': 'Session ID and description are required'}), 400
-    
-    session, error = get_or_create_session(session_id)
-    
-    if error:
-        return jsonify({'status': 'error', 'message': error}), 500
-    
-    coder = session['coder']
-    
-    prompt = f"""Create a detailed Product Requirements Document for:
-{description}
-
-Include:
-1. Overview
-2. Objectives
-3. Target users
-4. Features and requirements
-5. Technical specifications
-6. Success metrics
-"""
-    
-    # Add message to history
-    session['messages'].append({'role': 'user', 'content': prompt})
-    coder.io.add_to_input_history(prompt)
-    
-    # Create a response collector
-    prd_content = []
-    
-    def collect_prd():
-        with app.app_context():
-            try:
-                for chunk in coder.run_stream(prompt):
-                    prd_content.append(chunk)
-                    socketio.emit('prd_chunk', {'chunk': chunk, 'session_id': session_id})
-                
-                socketio.emit('prd_complete', {
-                    'prd': ''.join(prd_content),
-                    'session_id': session_id
-                })
-                
-                # Add to messages
-                session['messages'].append({'role': 'assistant', 'content': ''.join(prd_content)})
-            except Exception as e:
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error in collect_prd: {str(e)}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                socketio.emit('error', {
-                    'message': str(e),
-                    'session_id': session_id
-                })
-    
-    threading.Thread(target=collect_prd).start()
-    
-    return jsonify({'status': 'success'})
-
-@app.route('/api/generate_tasks', methods=['POST'])
-def generate_tasks():
-    """Generate tasks from a PRD"""
-    data = request.json
-    session_id = data.get('session_id')
-    prd = data.get('prd')
-    
-    if not session_id or not prd:
-        return jsonify({'status': 'error', 'message': 'Session ID and PRD are required'}), 400
-    
-    session, error = get_or_create_session(session_id)
-    
-    if error:
-        return jsonify({'status': 'error', 'message': error}), 500
-    
-    coder = session['coder']
-    
-    prompt = f"""Based on this PRD:
-{prd}
-
-Generate a list of implementation tasks and subtasks in JSON format:
-{{
-    "tasks": [
-        {{
-            "name": "Task name",
-            "description": "Task description",
-            "subtasks": [
-                {{
-                    "name": "Subtask name",
-                    "description": "Subtask description"
-                }}
-            ]
-        }}
-    ]
-}}
-"""
-    
-    # Add message to history
-    session['messages'].append({'role': 'user', 'content': prompt})
-    coder.io.add_to_input_history(prompt)
-    
-    # Create a response collector
-    tasks_content = []
-    
-    def collect_tasks():
-        with app.app_context():
-            try:
-                for chunk in coder.run_stream(prompt):
-                    tasks_content.append(chunk)
-                    socketio.emit('tasks_chunk', {'chunk': chunk, 'session_id': session_id})
-                
-                tasks_json = ''.join(tasks_content)
-                try:
-                    # Try to parse as JSON
-                    tasks = json.loads(tasks_json)
-                    socketio.emit('tasks_complete', {
-                        'tasks': tasks,
-                        'session_id': session_id
-                    })
-                except json.JSONDecodeError:
-                    # If not valid JSON, send as string
-                    socketio.emit('tasks_complete', {
-                        'tasks_text': tasks_json,
-                        'session_id': session_id
-                    })
-                
-                # Add to messages
-                session['messages'].append({'role': 'assistant', 'content': tasks_json})
-            except Exception as e:
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error in collect_tasks: {str(e)}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                socketio.emit('error', {
-                    'message': str(e),
-                    'session_id': session_id
-                })
-    
-    threading.Thread(target=collect_tasks).start()
-    
-    return jsonify({'status': 'success'})
-
-@app.route('/api/execute_tasks', methods=['POST'])
-def execute_tasks():
-    """Execute a list of tasks"""
-    data = request.json
-    session_id = data.get('session_id')
-    tasks = data.get('tasks')
-    
-    if not session_id or not tasks:
-        return jsonify({'status': 'error', 'message': 'Session ID and tasks are required'}), 400
-    
-    session, error = get_or_create_session(session_id)
-    
-    if error:
-        return jsonify({'status': 'error', 'message': error}), 500
-    
-    coder = session['coder']
-    
-    # Store task execution results
-    if 'task_results' not in session:
-        session['task_results'] = []
-    
-    def execute_task(task, subtask=None):
-        with app.app_context():
-            try:
-                description = task["description"]
-                if subtask:
-                    task_name = f"{task['name']} - {subtask['name']}"
-                    description += f" - {subtask['description']}"
-                else:
-                    task_name = task['name']
-                
-                prompt = f"""
-I need you to implement this task:
-{description}
-
-Please write or modify the necessary code to complete this task.
-"""
-                
-                # Add task execution start message
-                socketio.emit('task_started', {
-                    'task_name': task_name,
-                    'description': description,
-                    'session_id': session_id
-                })
-                
-                # Execute the task
-                response_content = []
-                for chunk in coder.run_stream(prompt):
-                    response_content.append(chunk)
-                    socketio.emit('task_chunk', {
-                        'task_name': task_name,
-                        'chunk': chunk,
-                        'session_id': session_id
-                    })
-                
-                result = ''.join(response_content)
-                
-                # Check if files were edited
-                edited_files = list(coder.aider_edited_files) if coder.aider_edited_files else []
-                
-                # Check if a commit was made
-                commit_hash = coder.last_aider_commit_hash
-                commit_message = coder.last_aider_commit_message if commit_hash else None
-                
-                # Create result object
-                task_result = {
-                    'task_name': task_name,
-                    'description': description,
-                    'result': result,
-                    'edited_files': edited_files,
-                    'commit_hash': commit_hash,
-                    'commit_message': commit_message
-                }
-                
-                # Add to session results
-                session['task_results'].append(task_result)
-                
-                # Send completion event
-                socketio.emit('task_completed', {
-                    'task_result': task_result,
-                    'session_id': session_id
-                })
-                
-                return task_result
-            except Exception as e:
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error in execute_task: {str(e)}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                socketio.emit('error', {
-                    'message': str(e),
-                    'session_id': session_id
-                })
-                return None
-    
-    def run_tasks():
-        with app.app_context():
-            try:
-                all_results = []
-                
-                socketio.emit('tasks_execution_started', {
-                    'num_tasks': len(tasks),
-                    'session_id': session_id
-                })
-                
-                for task in tasks:
-                    if task.get("subtasks"):
-                        for subtask in task["subtasks"]:
-                            result = execute_task(task, subtask)
-                            if result:
-                                all_results.append(result)
-                    else:
-                        result = execute_task(task)
-                        if result:
-                            all_results.append(result)
-                
-                socketio.emit('tasks_execution_completed', {
-                    'results': all_results,
-                    'session_id': session_id
-                })
-            except Exception as e:
-                logger = logging.getLogger(__name__)
-                logger.error(f"Error in run_tasks: {str(e)}")
-                logger.error(f"Traceback: {traceback.format_exc()}")
-                socketio.emit('error', {
-                    'message': str(e),
-                    'session_id': session_id
-                })
-    
-    threading.Thread(target=run_tasks).start()
-    
-    return jsonify({'status': 'success'})
-
-@app.route('/api/task_status', methods=['GET'])
-def task_status():
-    """Get the status of task execution"""
-    session_id = request.args.get('session_id')
-    
-    if not session_id:
-        return jsonify({'status': 'error', 'message': 'Session ID is required'}), 400
-    
-    session, error = get_or_create_session(session_id, create=False)
-    
-    if not session:
-        return jsonify({'status': 'error', 'message': 'Session not found'}), 404
-    
-    if 'task_results' in session:
-        return jsonify({'status': 'success', 'results': session['task_results']})
-    
-    return jsonify({'status': 'in_progress'})
-
 @app.route('/api/test_connection', methods=['GET'])
 def test_connection():
     """Test endpoint for connection debugging"""
@@ -782,96 +604,25 @@ def test_connection():
         'timestamp': time.time()
     })
 
-@socketio.on('test_message')
-def handle_test_message(data):
-    """Handle test messages from the client"""
-    logger = logging.getLogger(__name__)
-    logger.debug(f"Received test message: {data}")
-    session_id = data.get('session_id')
-    message = data.get('message', 'No message provided')
-    
-    # Send response in chunks like the rest of the application
-    response = {
-        'session_id': session_id,
-        'original_message': message,
-        'timestamp': time.time(),
-        # Commenting out server_info to avoid attribute errors
-        # 'server_info': {
-        #     'python_version': sys.version,
-        #     'flask_version': flask.__version__,
-        #     'hostname': socket.gethostname(),
-        #     'uptime': time.time() - start_time
-        # }
-    }
-    
-    # Convert response to string and split into chunks
-    response_str = json.dumps(response)
-    chunk_size = 100  # Same chunk size as used in message streaming
-    chunks = [response_str[i:i+chunk_size] for i in range(0, len(response_str), chunk_size)]
-    
-    # Send each chunk
-    for chunk in chunks:
-        socketio.emit('message_chunk', {
-            'chunk': chunk,
-            'session_id': session_id
-        })
-    
-    # Send completion message
-    socketio.emit('message_complete', {
-        'session_id': session_id
-    })
-    
-    logger.debug(f"Sent test response in {len(chunks)} chunks")
-
-# Socket.IO event handlers
-@socketio.on('connect')
-def handle_connect():
-    print('Client connected')
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print('Client disconnected')
-
 if __name__ == '__main__':
-    # Configure logging
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler('aider_api.log')
-        ]
-    )
-    
-    # Set Flask and Werkzeug loggers to DEBUG
-    for logger_name in ['flask', 'werkzeug', '__main__', 'aider']:
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.DEBUG)
-        # Ensure the logger propagates to the root logger
-        logger.propagate = True
-    
-    logger = logging.getLogger(__name__)
-    logger.info("=== Starting Aider API Server ===")
-    logger.info(f"Current working directory: {os.getcwd()}")
+    print("=== Starting Aider API Server ===")
+    print(f"Current working directory: {os.getcwd()}")
     
     # Check if we're in a git repo
     try:
         from git import Repo
         repo = Repo(os.getcwd(), search_parent_directories=True)
-        logger.info(f"Found git repository at: {repo.git_dir}")
+        print(f"Found git repository at: {repo.git_dir}")
     except Exception as e:
-        logger.error(f"Failed to find git repository: {e}")
-        logger.error("The API server must be run from within a git repository")
+        print(f"Failed to find git repository: {e}")
+        print("The API server must be run from within a git repository")
         sys.exit(1)
     
     # Run the server
-    logger.info("Starting Flask server...")
-    socketio.run(
-        app,
+    print("Starting Flask server...")
+    app.run(
         host='0.0.0.0',
         port=5000,
         debug=True,
-        use_reloader=True,
-        log_output=True,
-        allow_unsafe_werkzeug=True
+        threaded=True
     ) 
