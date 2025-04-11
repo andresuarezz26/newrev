@@ -24,7 +24,7 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted';
 import CodeIcon from '@mui/icons-material/Code';
 
-import api, { socket, SESSION_ID } from '../services/api';
+import api, { SESSION_ID } from '../services/api';
 
 const steps = ['Project Description', 'Generate PRD', 'Generate Tasks', 'Execute Tasks'];
 
@@ -39,46 +39,79 @@ const PrdGenerator = () => {
   const [taskResults, setTaskResults] = useState([]);
   const [executionStarted, setExecutionStarted] = useState(false);
   const [executionComplete, setExecutionComplete] = useState(false);
+  const [eventSource, setEventSource] = useState(null);
 
   useEffect(() => {
-    // Socket event handlers for PRD generation
-    const handlePrdChunk = (data) => {
+    return () => {
+      // Cleanup: close SSE connection when component unmounts
+      if (eventSource) {
+        console.log('Closing SSE connection');
+        eventSource.close();
+      }
+    };
+  }, [eventSource]);
+
+  const setupSSE = () => {
+    // Close existing connection if any
+    if (eventSource) {
+      eventSource.close();
+    }
+
+    console.log('Setting up SSE connection');
+    const sse = new EventSource(`/api/stream?session_id=${SESSION_ID}`);
+
+    // Connection opened
+    sse.onopen = (event) => {
+      console.log('SSE connection opened:', event);
+    };
+
+    // Handle different event types
+    sse.addEventListener('prd_chunk', (event) => {
+      const data = JSON.parse(event.data);
+      console.log('Received PRD chunk:', data);
       if (data.session_id === SESSION_ID) {
         setStreamingContent((prev) => prev + (data.chunk || ''));
       }
-    };
+    });
 
-    const handlePrdComplete = (data) => {
+    sse.addEventListener('prd_complete', (event) => {
+      const data = JSON.parse(event.data);
+      console.log('PRD generation complete:', data);
       if (data.session_id === SESSION_ID) {
         setPrd(data.prd);
         setLoading(false);
-        setActiveStep(2); // Move to the next step
+        setActiveStep(2);
       }
-    };
+    });
 
-    // Socket event handlers for Task generation
-    const handleTasksChunk = (data) => {
+    sse.addEventListener('tasks_chunk', (event) => {
+      const data = JSON.parse(event.data);
+      console.log('Received tasks chunk:', data);
       if (data.session_id === SESSION_ID) {
         setStreamingContent((prev) => prev + (data.chunk || ''));
       }
-    };
+    });
 
-    const handleTasksComplete = (data) => {
+    sse.addEventListener('tasks_complete', (event) => {
+      const data = JSON.parse(event.data);
+      console.log('Tasks generation complete:', data);
       if (data.session_id === SESSION_ID) {
         if (data.tasks) {
-          setTasks(data.tasks.tasks || []);
+          console.log('Setting tasks:', data.tasks);
+          setTasks(data.tasks || []);
         } else if (data.tasks_text) {
-          // Handle non-JSON response
+          console.error('Received non-JSON tasks response:', data.tasks_text);
           setError('Tasks were generated but not in the expected format');
           setStreamingContent(data.tasks_text);
         }
         setLoading(false);
-        setActiveStep(3); // Move to the next step
+        setActiveStep(3);
       }
-    };
+    });
 
-    // Socket event handlers for Task execution
-    const handleTaskStarted = (data) => {
+    sse.addEventListener('task_started', (event) => {
+      const data = JSON.parse(event.data);
+      console.log('Task started:', data);
       if (data.session_id === SESSION_ID) {
         setTaskResults((prev) => [
           ...prev,
@@ -90,9 +123,11 @@ const PrdGenerator = () => {
           }
         ]);
       }
-    };
+    });
 
-    const handleTaskChunk = (data) => {
+    sse.addEventListener('task_chunk', (event) => {
+      const data = JSON.parse(event.data);
+      console.log('Received task chunk:', data);
       if (data.session_id === SESSION_ID) {
         setTaskResults((prev) => {
           const updatedResults = [...prev];
@@ -103,9 +138,11 @@ const PrdGenerator = () => {
           return updatedResults;
         });
       }
-    };
+    });
 
-    const handleTaskCompleted = (data) => {
+    sse.addEventListener('task_completed', (event) => {
+      const data = JSON.parse(event.data);
+      console.log('Task completed:', data);
       if (data.session_id === SESSION_ID) {
         setTaskResults((prev) => {
           const updatedResults = [...prev];
@@ -119,45 +156,42 @@ const PrdGenerator = () => {
           return updatedResults;
         });
       }
-    };
+    });
 
-    const handleTasksExecutionStarted = (data) => {
+    sse.addEventListener('tasks_execution_started', (event) => {
+      const data = JSON.parse(event.data);
       if (data.session_id === SESSION_ID) {
         setExecutionStarted(true);
       }
-    };
+    });
 
-    const handleTasksExecutionCompleted = (data) => {
+    sse.addEventListener('tasks_execution_completed', (event) => {
+      const data = JSON.parse(event.data);
       if (data.session_id === SESSION_ID) {
         setExecutionComplete(true);
         setLoading(false);
       }
+    });
+
+    sse.addEventListener('error', (event) => {
+      const data = JSON.parse(event.data);
+      console.error('Received error from server:', data);
+      if (data.session_id === SESSION_ID) {
+        setError(data.message || 'An error occurred');
+        setLoading(false);
+      }
+    });
+
+    // Handle connection errors
+    sse.onerror = (error) => {
+      console.error('SSE connection error:', error);
+      setError('Lost connection to server. Please try again.');
+      setLoading(false);
+      sse.close();
     };
 
-    // Set up socket event listeners
-    socket.on('prd_chunk', handlePrdChunk);
-    socket.on('prd_complete', handlePrdComplete);
-    socket.on('tasks_chunk', handleTasksChunk);
-    socket.on('tasks_complete', handleTasksComplete);
-    socket.on('task_started', handleTaskStarted);
-    socket.on('task_chunk', handleTaskChunk);
-    socket.on('task_completed', handleTaskCompleted);
-    socket.on('tasks_execution_started', handleTasksExecutionStarted);
-    socket.on('tasks_execution_completed', handleTasksExecutionCompleted);
-
-    // Clean up event listeners
-    return () => {
-      socket.off('prd_chunk', handlePrdChunk);
-      socket.off('prd_complete', handlePrdComplete);
-      socket.off('tasks_chunk', handleTasksChunk);
-      socket.off('tasks_complete', handleTasksComplete);
-      socket.off('task_started', handleTaskStarted);
-      socket.off('task_chunk', handleTaskChunk);
-      socket.off('task_completed', handleTaskCompleted);
-      socket.off('tasks_execution_started', handleTasksExecutionStarted);
-      socket.off('tasks_execution_completed', handleTasksExecutionCompleted);
-    };
-  }, []);
+    setEventSource(sse);
+  };
 
   const handleGeneratePRD = async () => {
     if (!projectDescription.trim()) return;
@@ -167,9 +201,11 @@ const PrdGenerator = () => {
     setStreamingContent('');
     
     try {
+      console.log('Generating PRD for description:', projectDescription);
+      setupSSE(); // Setup SSE connection before making the API call
       await api.generatePRD(projectDescription);
-      // Wait for socket events to complete the process
     } catch (error) {
+      console.error('Error generating PRD:', error);
       setError('Error generating PRD: ' + error.message);
       setLoading(false);
     }
@@ -183,9 +219,11 @@ const PrdGenerator = () => {
     setStreamingContent('');
     
     try {
+      console.log('Generating tasks for PRD:', prd);
+      setupSSE(); // Setup SSE connection before making the API call
       await api.generateTasks(prd);
-      // Wait for socket events to complete the process
     } catch (error) {
+      console.error('Error generating tasks:', error);
       setError('Error generating tasks: ' + error.message);
       setLoading(false);
     }
@@ -201,9 +239,11 @@ const PrdGenerator = () => {
     setExecutionComplete(false);
     
     try {
+      console.log('Executing tasks:', tasks);
+      setupSSE(); // Setup SSE connection before making the API call
       await api.executeTasks(tasks);
-      // Wait for socket events to complete the process
     } catch (error) {
+      console.error('Error executing tasks:', error);
       setError('Error executing tasks: ' + error.message);
       setLoading(false);
     }

@@ -21,7 +21,7 @@ import {
     LinearProgress
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import { addEventListener, removeEventListener, SESSION_ID } from '../services/api';
+import { SESSION_ID } from '../services/api';
 import api from '../services/api';
 
 const PRDAnalyzer = ({ open, onClose }) => {
@@ -32,6 +32,7 @@ const PRDAnalyzer = ({ open, onClose }) => {
     const [processingStatus, setProcessingStatus] = useState('');
     const [tasks, setTasks] = useState([]);
     const [error, setError] = useState(null);
+    const [progress, setProgress] = useState(0);
 
     const steps = [
         'Input PRD',
@@ -40,52 +41,6 @@ const PRDAnalyzer = ({ open, onClose }) => {
         'Subtask Creation',
         'Results'
     ];
-
-    useEffect(() => {
-        // Handle status updates
-        const handleStatus = (data) => {
-            if (data.session_id === SESSION_ID) {
-                setProcessingStatus(data.message);
-                
-                if (data.status === 'started') {
-                    setActiveStep(1);
-                } else if (data.status === 'analyzing_complexity') {
-                    setActiveStep(2);
-                } else if (data.status === 'generating_subtasks') {
-                    setActiveStep(3);
-                }
-            }
-        };
-
-        // Handle completion
-        const handleComplete = (data) => {
-            if (data.session_id === SESSION_ID) {
-                setTasks(data.tasks);
-                setActiveStep(4);
-                setIsProcessing(false);
-            }
-        };
-
-        // Handle errors
-        const handleError = (data) => {
-            if (data.session_id === SESSION_ID) {
-                setError(data.message);
-                setIsProcessing(false);
-            }
-        };
-
-        // Add event listeners
-        addEventListener('prd_processing_status', handleStatus);
-        addEventListener('prd_processing_complete', handleComplete);
-        addEventListener('error', handleError);
-
-        // Clean up
-        return () => {
-            removeEventListener('prd_processing_status', handleStatus);
-            removeEventListener('prd_processing_complete', handleComplete);
-            removeEventListener('error', handleError);
-        };
-    }, []);
 
     const handleSubmitPRD = async () => {
         if (!prdContent.trim()) {
@@ -96,14 +51,49 @@ const PRDAnalyzer = ({ open, onClose }) => {
         setError(null);
         setIsProcessing(true);
         setProcessingStatus('Submitting PRD...');
-        setActiveStep(0);
+        setActiveStep(1);
+        setProgress(10);
 
         try {
-            await api.generateTasksFromPRD(prdContent, numTasks);
-            // Status updates will come through the event listeners
+            // Simulate progress for better UX
+            const progressInterval = setInterval(() => {
+                setProgress(prev => {
+                    if (prev < 90) return prev + 5;
+                    return prev;
+                });
+                
+                // Update status message based on progress
+                if (progress >= 10 && progress < 40) {
+                    setProcessingStatus('Generating tasks...');
+                    setActiveStep(1);
+                } else if (progress >= 40 && progress < 60) {
+                    setProcessingStatus('Analyzing task complexity...');
+                    setActiveStep(2);
+                } else if (progress >= 60 && progress < 90) {
+                    setProcessingStatus('Generating subtasks for complex tasks...');
+                    setActiveStep(3);
+                }
+            }, 800);
+            
+            // Call the synchronous API endpoint
+            const response = await api.generateTasksFromPRD(prdContent, numTasks);
+            
+            // Clear interval and set final progress
+            clearInterval(progressInterval);
+            setProgress(100);
+            
+            // Process response
+            if (response.status === 'success') {
+                setTasks(response.tasks);
+                setActiveStep(4);
+                setProcessingStatus('Analysis complete');
+            } else {
+                throw new Error(response.message || 'Failed to analyze PRD');
+            }
         } catch (error) {
             console.error('Error submitting PRD:', error);
-            setError('Failed to submit PRD. Please try again.');
+            setError('Failed to analyze PRD: ' + (error.message || 'Unknown error'));
+        } finally {
             setIsProcessing(false);
         }
     };
@@ -179,6 +169,9 @@ const PRDAnalyzer = ({ open, onClose }) => {
 
                 {(activeStep > 0 && activeStep < 4 && isProcessing) && (
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', my: 4 }}>
+                        <Box sx={{ width: '100%', mb: 2 }}>
+                            <LinearProgress variant="determinate" value={progress} />
+                        </Box>
                         <CircularProgress size={60} sx={{ mb: 2 }} />
                         <Typography variant="h6">{processingStatus}</Typography>
                     </Box>
@@ -249,24 +242,22 @@ const PRDAnalyzer = ({ open, onClose }) => {
                                             
                                             {task.subtasks.map((subtask) => (
                                                 <Paper key={subtask.id} variant="outlined" sx={{ p: 2, mt: 1 }}>
-                                                    <Typography variant="subtitle2">{subtask.title}</Typography>
-                                                    <Typography variant="body2">{subtask.description}</Typography>
+                                                    <Typography variant="subtitle2">
+                                                        {subtask.id}: {subtask.title}
+                                                        {subtask.estimatedHours && (
+                                                            <Chip 
+                                                                label={`~${subtask.estimatedHours} hours`}
+                                                                size="small"
+                                                                color="info"
+                                                                sx={{ ml: 1 }}
+                                                            />
+                                                        )}
+                                                    </Typography>
                                                     
-                                                    {subtask.dependencies && subtask.dependencies.length > 0 && (
-                                                        <Box sx={{ mt: 1 }}>
-                                                            <Typography variant="caption">Dependencies:</Typography>
-                                                            <Box sx={{ display: 'flex', flexWrap: 'wrap' }}>
-                                                                {subtask.dependencies.map(dep => (
-                                                                    <Chip 
-                                                                        key={dep}
-                                                                        label={`Subtask ${dep}`}
-                                                                        size="small"
-                                                                        variant="outlined"
-                                                                        sx={{ m: 0.5 }}
-                                                                    />
-                                                                ))}
-                                                            </Box>
-                                                        </Box>
+                                                    {subtask.description && (
+                                                        <Typography variant="body2" sx={{ mt: 1 }}>
+                                                            {subtask.description}
+                                                        </Typography>
                                                     )}
                                                     
                                                     {subtask.details && (
