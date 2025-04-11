@@ -641,6 +641,40 @@ def generate_tasks_from_prd():
 def process_prd_sync(session_id, prd_content, num_tasks):
     """Process PRD and generate tasks with LLM - synchronous version"""
     try:
+        # Get the session with initialized coder
+        session, error = get_or_create_session(session_id)
+        if error:
+            raise ValueError(f"Error retrieving session: {error}")
+        
+        coder = session['coder']
+        
+        # Save PRD to file using the simple code pattern
+        path = "PRD.txt"
+        full_path = coder.abs_root_path(path)  # Convert to absolute path
+        with open(full_path, "w") as f:
+            f.write(prd_content)
+        print(f"Saved PRD to {path}")
+        
+        # Add file to git tracking
+        try:
+            # Add to git using the coder's repo methods
+            if hasattr(coder, 'repo') and coder.repo:
+                coder.repo.add([path])
+                print(f"Added {path} to git tracking")
+                
+                # Optionally commit the file
+                commit_message = "Add PRD document"
+                coder.repo.commit(commit_message)
+                print(f"Committed {path} to repository")
+                
+                # Make sure it's added to the list of files in the chat if not already there
+                if path not in coder.get_inchat_relative_files():
+                    coder.add_rel_fname(path)
+                    print(f"Added {path} to chat files")
+        except Exception as e:
+            print(f"Error adding file to git: {str(e)}")
+            # Continue even if git operations fail
+        
         # Check for required environment variables
         if not os.getenv('ANTHROPIC_API_KEY'):
             raise ValueError("Missing ANTHROPIC_API_KEY environment variable. Please add it to your .env file.")
@@ -670,7 +704,8 @@ def process_prd_sync(session_id, prd_content, num_tasks):
             'projectName': 'PRD Implementation',
             'totalTasks': len(analyzed_tasks),
             'complexTasks': total_complex_tasks,
-            'generatedAt': datetime.now().isoformat()
+            'generatedAt': datetime.now().isoformat(),
+            'prdFile': path  # Add the PRD file path to metadata
         }
         
         return {
@@ -687,12 +722,46 @@ def generate_tasks_from_prd_with_llm(session_id, prd_content, num_tasks):
     """Generate tasks from PRD using LLM"""
     try:
         import anthropic  # Import at runtime to avoid dependency issues
+        import re
         
         # Get API key from environment
-        #api_key = os.getenv('ANTHROPIC_API_KEY')
-        #if not api_key:
-        #    raise ValueError("Anthropic API key not found in environment variables")
-        api_key = "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"
+        api_key = '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'
+        if not api_key:
+            raise ValueError("Anthropic API key not found in environment variables")
+        
+        # More robust sanitization approach
+        print("Original PRD length:", len(prd_content))
+        
+        # Option 1: Replace all control characters (except newlines, tabs) with spaces
+        sanitized_prd = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', ' ', prd_content)
+        
+        # Option 2: Completely remove all control characters (including newlines, tabs)
+        # sanitized_prd = re.sub(r'[\x00-\x1F\x7F]', '', prd_content)
+        
+        # Check for JSON-incompatible characters that might be remaining
+        problematic_chars = []
+        for i, char in enumerate(sanitized_prd):
+            if ord(char) < 32 and char not in ('\n', '\t', '\r'):
+                problematic_chars.append((i, ord(char), char))
+        
+        if problematic_chars:
+            print(f"WARNING: Found {len(problematic_chars)} problematic characters after sanitization")
+            print(f"First 5 problematic chars: {problematic_chars[:5]}")
+            
+            # Double-check and remove any remaining problematic characters
+            sanitized_prd = ''.join(char for char in sanitized_prd if ord(char) >= 32 or char in ('\n', '\t', '\r'))
+        
+        print("Sanitized PRD length:", len(sanitized_prd))
+        
+        # Verify the problematic location specifically (based on error message)
+        lines = sanitized_prd.split('\n')
+        if len(lines) >= 10:
+            line10 = lines[9]  # 0-indexed, so line 10 is at index 9
+            if len(line10) >= 106:
+                print(f"Character at line 10, column 106: '{line10[105]}' (ASCII: {ord(line10[105])})")
+                # Extra safety - strip out any potential issue characters from this area
+                if len(line10) > 110:
+                    print(f"Section around error: '{line10[100:110]}'")
         
         # Initialize Anthropic client
         client = anthropic.Anthropic(api_key=api_key)
@@ -738,8 +807,9 @@ Expected output format:
 
 Important: Your response must be valid JSON only, with no additional explanation or comments."""
 
-        # Call Anthropic API
+        # Call Anthropic API with a try-except to handle JSON-related errors more gracefully
         try:
+            print("Sending request to Anthropic API...")
             response = client.messages.create(
                 model="claude-3-haiku-20240307",
                 max_tokens=4000,
@@ -747,7 +817,7 @@ Important: Your response must be valid JSON only, with no additional explanation
                 system=system_prompt,
                 messages=[{
                     "role": "user",
-                    "content": f"Here's the Product Requirements Document (PRD) to break down into {num_tasks} tasks:\n\n{prd_content}"
+                    "content": f"Here's the Product Requirements Document (PRD) to break down into {num_tasks} tasks:\n\n{sanitized_prd}"
                 }]
             )
             
@@ -759,10 +829,14 @@ Important: Your response must be valid JSON only, with no additional explanation
             json_end = response_text.rindex('}')
             json_content = response_text[json_start:json_end+1]
             
+            print("Successfully parsed LLM response")
             tasks_data = json.loads(json_content)
             
             return tasks_data.get('tasks', [])
             
+        except json.JSONDecodeError as json_err:
+            print(f"JSON parsing error: {str(json_err)}")
+            raise ValueError(f"Failed to parse JSON response from Anthropic API: {str(json_err)}")
         except Exception as api_error:
             print(f"Anthropic API error: {str(api_error)}")
             print(f"API error details: {type(api_error).__name__}")
@@ -794,12 +868,12 @@ def generate_subtasks_for_task(session_id, task):
     """Generate subtasks for a complex task using LLM"""
     try:
         import anthropic
+        import re
         
         # Get API key from environment
-        #api_key = os.getenv('ANTHROPIC_API_KEY')
-        #if not api_key:
-        #    raise ValueError("Anthropic API key not found in environment variables")
-        api_key = "sk-ant-api03-2222222222222222222222222222222222222222222222222222222222222222"
+        api_key = "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"
+        if not api_key:
+            raise ValueError("Anthropic API key not found in environment variables")
         
         # Initialize Anthropic client
         client = anthropic.Anthropic(api_key=api_key)
@@ -836,34 +910,126 @@ Expected output format:
 
 Important: Your response must be valid JSON only, with no additional explanation or comments."""
 
-        # Call Anthropic API
-        response = client.messages.create(
-            model="claude-3-haiku-20240307",
-            max_tokens=2000,
-            temperature=0.2,
-            system=system_prompt,
-            messages=[{
-                "role": "user",
-                "content": f"Break down this complex task into subtasks:\n\nTask ID: {task['id']}\nTitle: {task['title']}\nDescription: {task['description']}\nImplementation Details: {task.get('details', 'No additional details provided')}"
-            }]
-        )
+        # Prepare the task content, use regex for sanitization
+        task_description = task.get('description', '')
+        task_details = task.get('details', 'No additional details provided')
+        task_title = task.get('title', 'Untitled Task')
         
-        # Extract and parse response
-        response_text = response.content[0].text
+        # More robust sanitization of text fields
+        sanitized_title = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', ' ', task_title)
+        sanitized_description = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', ' ', task_description)
+        sanitized_details = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', ' ', task_details)
         
-        # Find and extract JSON
-        json_start = response_text.find('{')
-        json_end = response_text.rindex('}')
-        json_content = response_text[json_start:json_end+1]
-        
-        subtasks_data = json.loads(json_content)
-        
-        return subtasks_data.get('subtasks', [])
+        # Final safety check - remove any remaining control characters
+        sanitized_title = ''.join(char for char in sanitized_title if ord(char) >= 32 or char in ('\n', '\t', '\r'))
+        sanitized_description = ''.join(char for char in sanitized_description if ord(char) >= 32 or char in ('\n', '\t', '\r'))
+        sanitized_details = ''.join(char for char in sanitized_details if ord(char) >= 32 or char in ('\n', '\t', '\r'))
+
+        # Call Anthropic API with improved error handling
+        try:
+            response = client.messages.create(
+                model="claude-3-haiku-20240307",
+                max_tokens=2000,
+                temperature=0.2,
+                system=system_prompt,
+                messages=[{
+                    "role": "user",
+                    "content": f"Break down this complex task into subtasks:\n\nTask ID: {task['id']}\nTitle: {sanitized_title}\nDescription: {sanitized_description}\nImplementation Details: {sanitized_details}"
+                }]
+            )
+            
+            # Extract and parse response
+            response_text = response.content[0].text
+            
+            # Find and extract JSON
+            json_start = response_text.find('{')
+            json_end = response_text.rindex('}')
+            json_content = response_text[json_start:json_end+1]
+            
+            subtasks_data = json.loads(json_content)
+            
+            return subtasks_data.get('subtasks', [])
+            
+        except json.JSONDecodeError as json_err:
+            print(f"JSON parsing error in subtask generation: {str(json_err)}")
+            raise ValueError(f"Failed to parse JSON response for subtasks: {str(json_err)}")
+        except Exception as api_error:
+            print(f"API error in subtask generation: {str(api_error)}")
+            raise ValueError(f"Failed to generate subtasks: {str(api_error)}")
         
     except Exception as e:
         print(f"Error generating subtasks: {str(e)}")
         print(traceback.format_exc())
         raise e
+
+@app.route('/api/get_prd', methods=['GET'])
+def get_prd():
+    """Get the content of PRD.txt from the repository"""
+    session_id = request.args.get('session_id')
+    
+    if not session_id:
+        return jsonify({'status': 'error', 'message': 'Session ID is required'}), 400
+    
+    session, error = get_or_create_session(session_id)
+    
+    if error:
+        return jsonify({'status': 'error', 'message': error}), 500
+    
+    coder = session['coder']
+    
+    # Check if PRD.txt exists in the repository
+    prd_path = "PRD.txt"
+    full_path = coder.abs_root_path(prd_path)
+    
+    if not os.path.exists(full_path):
+        return jsonify({'status': 'error', 'message': 'PRD.txt not found in repository'}), 404
+    
+    try:
+        # Read the PRD content
+        with open(full_path, 'r') as f:
+            prd_content = f.read()
+        
+        return jsonify({
+            'status': 'success',
+            'prd_content': prd_content
+        })
+    except Exception as e:
+        print(f"Error reading PRD.txt: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'Error reading PRD.txt: {str(e)}'}), 500
+
+@app.route('/api/repo_file', methods=['GET'])
+def get_repo_file():
+    """Get a file from the repository"""
+    file_name = request.args.get('file_name')
+    
+    if not file_name:
+        return jsonify({'status': 'error', 'message': 'File name is required'}), 400
+    
+    # Check if we're in a git repo
+    try:
+        from git import Repo
+        repo = Repo(os.getcwd(), search_parent_directories=True)
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': f'Failed to find git repository: {e}'}), 500
+    
+    # Check if the file exists in the repository
+    full_path = os.path.join(repo.git_dir, file_name)
+    
+    if not os.path.exists(full_path):
+        return jsonify({'status': 'error', 'message': f'File {file_name} not found in repository'}), 404
+    
+    try:
+        # Read the file content
+        with open(full_path, 'r') as f:
+            file_content = f.read()
+        
+        return jsonify({
+            'status': 'success',
+            'file_content': file_content
+        })
+    except Exception as e:
+        print(f"Error reading file: {str(e)}")
+        return jsonify({'status': 'error', 'message': f'Error reading file: {str(e)}'}), 500
 
 if __name__ == '__main__':
     print("=== Starting Aider API Server ===")

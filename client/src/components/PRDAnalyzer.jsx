@@ -18,7 +18,9 @@ import {
     Accordion,
     AccordionSummary,
     AccordionDetails,
-    LinearProgress
+    LinearProgress,
+    Alert,
+    Snackbar
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { SESSION_ID } from '../services/api';
@@ -33,6 +35,10 @@ const PRDAnalyzer = ({ open, onClose }) => {
     const [tasks, setTasks] = useState([]);
     const [error, setError] = useState(null);
     const [progress, setProgress] = useState(0);
+    const [metadata, setMetadata] = useState(null);
+    const [loadingPRD, setLoadingPRD] = useState(false);
+    const [prdLoaded, setPrdLoaded] = useState(false);
+    const [notification, setNotification] = useState({ open: false, message: '', severity: 'info' });
 
     const steps = [
         'Input PRD',
@@ -41,6 +47,50 @@ const PRDAnalyzer = ({ open, onClose }) => {
         'Subtask Creation',
         'Results'
     ];
+
+    // Load PRD content when component opens
+    useEffect(() => {
+        if (open) {
+            loadPRDContent();
+            refreshRepositoryFiles();
+        }
+    }, [open]);
+
+    const loadPRDContent = async () => {
+        setLoadingPRD(true);
+        try {
+            const response = await api.getPRDContent();
+            if (response.status === 'success' && response.prd_content) {
+                setPrdContent(response.prd_content);
+                setPrdLoaded(true);
+                setNotification({
+                    open: true,
+                    message: 'Loaded existing PRD from repository',
+                    severity: 'success'
+                });
+            }
+        } catch (error) {
+            console.log('No existing PRD found or error loading it');
+            // This is not a critical error, so we don't need to show it to the user
+        } finally {
+            setLoadingPRD(false);
+        }
+    };
+
+    // Refresh the repository files list to include new files
+    const refreshRepositoryFiles = async () => {
+        try {
+            await api.getFiles();
+            // This updates the files list in the app state through the API
+            console.log('Repository files refreshed');
+        } catch (error) {
+            console.error('Error refreshing repository files:', error);
+        }
+    };
+
+    const handleCloseNotification = () => {
+        setNotification({ ...notification, open: false });
+    };
 
     const handleSubmitPRD = async () => {
         if (!prdContent.trim()) {
@@ -85,6 +135,7 @@ const PRDAnalyzer = ({ open, onClose }) => {
             // Process response
             if (response.status === 'success') {
                 setTasks(response.tasks);
+                setMetadata(response.metadata);
                 setActiveStep(4);
                 setProcessingStatus('Analysis complete');
             } else {
@@ -134,6 +185,17 @@ const PRDAnalyzer = ({ open, onClose }) => {
 
     return (
         <Dialog open={open} onClose={!isProcessing ? onClose : undefined} maxWidth="lg" fullWidth>
+            <Snackbar 
+                open={notification.open} 
+                autoHideDuration={6000} 
+                onClose={handleCloseNotification}
+                anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+            >
+                <Alert onClose={handleCloseNotification} severity={notification.severity}>
+                    {notification.message}
+                </Alert>
+            </Snackbar>
+            
             <DialogTitle>PRD Analysis</DialogTitle>
             <DialogContent>
                 <Stepper activeStep={activeStep} sx={{ mt: 2, mb: 4 }}>
@@ -147,23 +209,36 @@ const PRDAnalyzer = ({ open, onClose }) => {
                 {activeStep === 0 && (
                     <Box>
                         <Typography variant="h6" gutterBottom>Enter your Product Requirements Document</Typography>
-                        <TextField
-                            label="PRD Content"
-                            multiline
-                            rows={10}
-                            fullWidth
-                            value={prdContent}
-                            onChange={(e) => setPrdContent(e.target.value)}
-                            sx={{ mb: 2 }}
-                        />
-                        <TextField
-                            label="Number of Tasks"
-                            type="number"
-                            value={numTasks}
-                            onChange={(e) => setNumTasks(parseInt(e.target.value) || 5)}
-                            InputProps={{ inputProps: { min: 3, max: 10 } }}
-                            sx={{ width: '200px' }}
-                        />
+                        {loadingPRD ? (
+                            <Box display="flex" justifyContent="center" mt={3} mb={3}>
+                                <CircularProgress size={40} />
+                            </Box>
+                        ) : (
+                            <>
+                                {prdLoaded && (
+                                    <Alert severity="info" sx={{ mb: 2 }}>
+                                        An existing PRD was loaded from the repository. You can edit it below if needed.
+                                    </Alert>
+                                )}
+                                <TextField
+                                    label="PRD Content"
+                                    multiline
+                                    rows={10}
+                                    fullWidth
+                                    value={prdContent}
+                                    onChange={(e) => setPrdContent(e.target.value)}
+                                    sx={{ mb: 2 }}
+                                />
+                                <TextField
+                                    label="Number of Tasks"
+                                    type="number"
+                                    value={numTasks}
+                                    onChange={(e) => setNumTasks(parseInt(e.target.value) || 5)}
+                                    InputProps={{ inputProps: { min: 3, max: 10 } }}
+                                    sx={{ width: '200px' }}
+                                />
+                            </>
+                        )}
                     </Box>
                 )}
 
@@ -180,6 +255,15 @@ const PRDAnalyzer = ({ open, onClose }) => {
                 {activeStep === 4 && (
                     <Box>
                         <Typography variant="h6" gutterBottom>Generated Tasks</Typography>
+                        
+                        {metadata && metadata.prdFile && (
+                            <Box sx={{ mb: 3, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
+                                <Typography>
+                                    PRD saved to: <code>{metadata.prdFile}</code>
+                                </Typography>
+                            </Box>
+                        )}
+                        
                         {tasks.map((task) => (
                             <Accordion key={task.id} sx={{ mb: 2 }}>
                                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -286,7 +370,7 @@ const PRDAnalyzer = ({ open, onClose }) => {
             </DialogContent>
             <DialogActions>
                 {activeStep === 0 && (
-                    <Button onClick={handleSubmitPRD} variant="contained" color="primary" disabled={isProcessing}>
+                    <Button onClick={handleSubmitPRD} variant="contained" color="primary" disabled={isProcessing || loadingPRD}>
                         Analyze PRD
                     </Button>
                 )}

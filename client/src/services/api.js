@@ -312,6 +312,19 @@ const api = {
       console.error('Error generating tasks from PRD:', error);
       throw error;
     }
+  },
+  
+  // Get PRD content from repository
+  getPRDContent: async () => {
+    try {
+      const response = await axios.get(`${API_URL}/get_prd`, {
+        params: { session_id: SESSION_ID }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching PRD content:', error);
+      throw error;
+    }
   }
 };
 
