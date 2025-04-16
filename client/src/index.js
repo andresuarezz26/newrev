@@ -87,7 +87,8 @@ const TestConnection = () => {
     };
 
     return (
-        <div style={{ padding: '20px' }}>
+        <div>
+        {/** <div style={{ padding: '20px' }}>
             <h2>Connection Test</h2>
             
             <div style={{ marginBottom: '20px' }}>
@@ -123,7 +124,8 @@ const TestConnection = () => {
                     ))}
                 </ul>
             </div>
-        </div>
+        </div>*/}
+        </div> 
     );
 };
 

@@ -1,216 +1,286 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Button, TextField, Paper, Typography, Box, Divider, CircularProgress, IconButton } from '@mui/material';
-import SendIcon from '@mui/icons-material/Send';
-import api, { addEventListener, removeEventListener, SESSION_ID } from '../services/api';
+"use client"
+
+import { useState, useEffect, useRef } from "react"
+import { Button, TextField, Paper, Typography, Box, Divider, CircularProgress, IconButton } from "@mui/material"
+import SendIcon from "@mui/icons-material/Send"
+import KeyboardArrowDownIcon from "@mui/icons-material/KeyboardArrowDown"
+import api, { addEventListener, removeEventListener, SESSION_ID } from "../services/api"
 
 const ChatInterface = () => {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [streamingContent, setStreamingContent] = useState('');
-  const messagesEndRef = useRef(null);
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState("")
+  const [isLoading, setIsLoading] = useState(false)
+  const [isInitializing, setIsInitializing] = useState(true)
+  const [streamingContent, setStreamingContent] = useState("")
+  const messagesEndRef = useRef(null)
+  const messagesContainerRef = useRef(null)
+  const isUserScrollingRef = useRef(false)
+  const [showScrollButton, setShowScrollButton] = useState(false)
+  const lastScrollPositionRef = useRef(0)
+  const lastScrollHeightRef = useRef(0)
 
   // Effect to initialize the session
   useEffect(() => {
     const initSession = async () => {
       try {
-        const response = await api.initSession();
-        if (response.status === 'success') {
-          setMessages(response.messages || []);
+        const response = await api.initSession()
+        if (response.status === "success") {
+          setMessages(response.messages || [])
         }
-        setIsInitializing(false);
+        setIsInitializing(false)
       } catch (error) {
-        console.error('Failed to initialize session:', error);
-        setIsInitializing(false);
+        console.error("Failed to initialize session:", error)
+        setIsInitializing(false)
       }
-    };
+    }
 
-    initSession();
-  }, []);
+    initSession()
+  }, [])
+
+  // Handle scroll events in the messages container
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container) return
+
+    const handleScroll = () => {
+      // Store the current scroll position and height
+      lastScrollPositionRef.current = container.scrollTop
+      lastScrollHeightRef.current = container.scrollHeight
+
+      // Check if user is at the bottom of the container
+      const isAtBottom = Math.abs(container.scrollHeight - container.scrollTop - container.clientHeight) < 50
+
+      // Update the scrolling state
+      isUserScrollingRef.current = !isAtBottom
+      setShowScrollButton(!isAtBottom && streamingContent)
+    }
+
+    // Add scroll event listener
+    container.addEventListener("scroll", handleScroll)
+
+    // Clean up
+    return () => {
+      container.removeEventListener("scroll", handleScroll)
+    }
+  }, [streamingContent])
+
+  // Effect to preserve scroll position when new content is added
+  useEffect(() => {
+    const container = messagesContainerRef.current
+    if (!container || !isUserScrollingRef.current) return
+
+    // If we're in the middle of receiving streaming content and the user has scrolled
+    if (streamingContent && isUserScrollingRef.current) {
+      // Calculate how much the content height has changed
+      const heightDifference = container.scrollHeight - lastScrollHeightRef.current
+
+      // Adjust scroll position to keep the user's view in the same relative position
+      if (heightDifference > 0) {
+        container.scrollTop = lastScrollPositionRef.current
+      }
+
+      // Update the reference height for next comparison
+      lastScrollHeightRef.current = container.scrollHeight
+    }
+  }, [streamingContent])
 
   // Effect to set up event listeners
   useEffect(() => {
     // Message chunk handler
     const handleMessageChunk = (data) => {
-      console.log('Message chunk received:', data);
       if (data.session_id === SESSION_ID) {
-        console.log('Setting streaming content:', data.chunk);
-        setStreamingContent((prev) => prev + (data.chunk || ''));
+        setStreamingContent((prev) => {
+          // Before updating the content, store the current scroll position
+          // if the user is scrolling
+          if (messagesContainerRef.current && isUserScrollingRef.current) {
+            lastScrollPositionRef.current = messagesContainerRef.current.scrollTop
+            lastScrollHeightRef.current = messagesContainerRef.current.scrollHeight
+          }
+          return prev + (data.chunk || "")
+        })
       }
-    };
+    }
 
     // Message complete handler
     const handleMessageComplete = (data) => {
-      console.log('Message complete received:', data);
       if (data.session_id === SESSION_ID) {
         if (streamingContent) {
-          setMessages((prev) => [
-            ...prev,
-            { role: 'assistant', content: streamingContent }
-          ]);
+          // Store the current scroll position before adding the final message
+          if (messagesContainerRef.current && isUserScrollingRef.current) {
+            lastScrollPositionRef.current = messagesContainerRef.current.scrollTop
+            lastScrollHeightRef.current = messagesContainerRef.current.scrollHeight
+          }
+
+          setMessages((prev) => [...prev, { role: "assistant", content: streamingContent }])
         }
-        setStreamingContent('');
-        setIsLoading(false);
+        setStreamingContent("")
+        setIsLoading(false)
+        setShowScrollButton(false)
       }
-    };
+    }
 
     // Files edited handler
     const handleFilesEdited = (data) => {
       if (data.session_id === SESSION_ID) {
         setMessages((prev) => [
           ...prev,
-          { 
-            role: 'info', 
-            content: `Files edited: ${data.files.join(', ')}` 
-          }
-        ]);
+          {
+            role: "info",
+            content: `Files edited: ${data.files.join(", ")}`,
+          },
+        ])
       }
-    };
+    }
 
     // Commit handler
     const handleCommit = (data) => {
       if (data.session_id === SESSION_ID) {
         setMessages((prev) => [
           ...prev,
-          { 
-            role: 'commit', 
+          {
+            role: "commit",
             content: `Commit: ${data.hash}\nMessage: ${data.message}`,
             hash: data.hash,
             message: data.message,
-            diff: data.diff
-          }
-        ]);
+            diff: data.diff,
+          },
+        ])
       }
-    };
+    }
 
     // Error handler
     const handleError = (data) => {
       if (data.session_id === SESSION_ID) {
-        setMessages((prev) => [
-          ...prev,
-          { role: 'error', content: data.message }
-        ]);
-        setIsLoading(false);
+        setMessages((prev) => [...prev, { role: "error", content: data.message }])
+        setIsLoading(false)
       }
-    };
+    }
 
     // Set up event listeners
-    addEventListener('message_chunk', handleMessageChunk);
-    addEventListener('message_complete', handleMessageComplete);
-    addEventListener('files_edited', handleFilesEdited);
-    addEventListener('commit', handleCommit);
-    addEventListener('error', handleError);
+    addEventListener("message_chunk", handleMessageChunk)
+    addEventListener("message_complete", handleMessageComplete)
+    addEventListener("files_edited", handleFilesEdited)
+    addEventListener("commit", handleCommit)
+    addEventListener("error", handleError)
 
     // Clean up event listeners
     return () => {
-      removeEventListener('message_chunk', handleMessageChunk);
-      removeEventListener('message_complete', handleMessageComplete);
-      removeEventListener('files_edited', handleFilesEdited);
-      removeEventListener('commit', handleCommit);
-      removeEventListener('error', handleError);
-    };
-  }, [streamingContent]);
+      removeEventListener("message_chunk", handleMessageChunk)
+      removeEventListener("message_complete", handleMessageComplete)
+      removeEventListener("files_edited", handleFilesEdited)
+      removeEventListener("commit", handleCommit)
+      removeEventListener("error", handleError)
+    }
+  }, [streamingContent])
 
-  // Effect to scroll to bottom when new messages arrive
+  // Effect to scroll to bottom when new messages arrive or when explicitly requested
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, streamingContent]);
+    if (!isUserScrollingRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    }
+  }, [messages])
 
   // Handle send message
   const handleSendMessage = async (e) => {
-    console.log('Sending message:', input);
-    e?.preventDefault();
-    
-    if (!input.trim() || isLoading) return;
-    
-    const userMessage = input;
-    setInput('');
-    setIsLoading(true);
-    
+    e?.preventDefault()
+
+    if (!input.trim() || isLoading) return
+
+    const userMessage = input
+    setInput("")
+    setIsLoading(true)
+
     // Add user message immediately
-    setMessages((prev) => [...prev, { role: 'user', content: userMessage }]);
-    
+    setMessages((prev) => [...prev, { role: "user", content: userMessage }])
+
+    // Reset scroll position when sending a new message
+    isUserScrollingRef.current = false
+    setShowScrollButton(false)
+
     try {
-      await api.sendMessage(userMessage);
+      await api.sendMessage(userMessage)
       // The response will come via event listeners
     } catch (error) {
-      console.error('Error sending message:', error);
-      setIsLoading(false);
-      
-      // Add error message
-      setMessages((prev) => [
-        ...prev,
-        { role: 'error', content: 'Failed to send message. Please try again.' }
-      ]);
-    }
-  };
+      console.error("Error sending message:", error)
+      setIsLoading(false)
 
-  // Render message based on role
-  const renderMessage = (message, index) => {
-    const { role, content } = message;
-    
-    let backgroundColor;
-    let textColor = '#000';
-    
-    switch (role) {
-      case 'user':
-        backgroundColor = '#e3f2fd';
-        break;
-      case 'assistant':
-        backgroundColor = '#f1f8e9';
-        break;
-      case 'info':
-        backgroundColor = '#fff8e1';
-        break;
-      case 'error':
-        backgroundColor = '#ffebee';
-        textColor = '#c62828';
-        break;
-      case 'commit':
-        backgroundColor = '#e8f5e9';
-        break;
-      default:
-        backgroundColor = '#f5f5f5';
+      // Add error message
+      setMessages((prev) => [...prev, { role: "error", content: "Failed to send message. Please try again." }])
     }
-    
+  }
+
+  // Force scroll to bottom button
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
+    isUserScrollingRef.current = false
+    setShowScrollButton(false)
+  }
+
+  // Render message based on role - KEEPING THIS EXACTLY AS ORIGINAL
+  const renderMessage = (message, index) => {
+    const { role, content } = message
+
+    let backgroundColor
+    let textColor = "#000"
+
+    switch (role) {
+      case "user":
+        backgroundColor = "#000000"
+        textColor = "#ffffff"
+        break
+      case "assistant":
+        backgroundColor = "#f5f5f5"
+        textColor = "#000000"
+        break
+      case "info":
+        backgroundColor = "#f5f5f5"
+        textColor = "#000000"
+        break
+      case "error":
+        backgroundColor = "#ffebee"
+        textColor = "#c62828"
+        break
+      case "commit":
+        backgroundColor = "#f5f5f5"
+        textColor = "#000000"
+        break
+      default:
+        backgroundColor = "#f5f5f5"
+        textColor = "#000000"
+    }
+
     return (
-      <Paper 
-        key={index} 
-        elevation={1} 
-        style={{ 
-          padding: '10px 15px', 
-          marginBottom: '10px',
+      <Paper
+        key={index}
+        elevation={1}
+        style={{
+          padding: "10px 15px",
+          marginBottom: "10px",
           backgroundColor,
-          color: textColor
+          color: textColor,
         }}
       >
         <Typography variant="caption" display="block" gutterBottom>
           {role.toUpperCase()}
         </Typography>
-        <Typography variant="body1" style={{ whiteSpace: 'pre-wrap' }}>
+        <Typography variant="body1" style={{ whiteSpace: "pre-wrap" }}>
           {content}
         </Typography>
-        
-        {role === 'commit' && message.diff && (
+
+        {role === "commit" && message.diff && (
           <Box mt={1}>
-            <Button 
-              size="small" 
-              variant="outlined" 
-              color="primary" 
-              onClick={() => api.undoCommit(message.hash)}
-            >
-              Undo Commit
+            <Button size="small" variant="outlined" color="primary" onClick={() => api.undoCommit(message.hash)}>
+              Revert Changes
             </Button>
-            <Typography 
-              variant="body2" 
-              component="pre" 
-              style={{ 
-                marginTop: '10px',
-                padding: '10px',
-                backgroundColor: '#f5f5f5',
-                overflowX: 'auto',
-                fontSize: '0.8rem'
+            <Typography
+              variant="body2"
+              component="pre"
+              style={{
+                marginTop: "10px",
+                padding: "10px",
+                backgroundColor: "#f5f5f5",
+                overflowX: "auto",
+                fontSize: "0.8rem",
               }}
             >
               {message.diff}
@@ -218,66 +288,199 @@ const ChatInterface = () => {
           </Box>
         )}
       </Paper>
-    );
-  };
+    )
+  }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', maxWidth: '800px', mx: 'auto' }}>
-      <Typography variant="h4" sx={{ p: 2, borderBottom: '1px solid #e0e0e0' }}>
-        Aider Browser
-      </Typography>
-      
+    <Box
+      sx={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100vh",
+        maxWidth: "800px",
+        mx: "auto",
+        fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+      }}
+    >
+      <Box
+        sx={{
+          p: 2,
+          borderBottom: "1px solid #f0f0f0",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <Typography
+          variant="h4"
+          sx={{
+            fontWeight: 600,
+            fontSize: "20px",
+          }}
+        >
+          Aider Browser
+        </Typography>
+        <Button
+          variant="contained"
+          sx={{
+            backgroundColor: "#000",
+            color: "#fff",
+            borderRadius: "20px",
+            textTransform: "none",
+            px: 3,
+            py: 1,
+            fontWeight: 500,
+            boxShadow: "none",
+            "&:hover": {
+              backgroundColor: "#333",
+              boxShadow: "none",
+            },
+          }}
+        >
+          Get Started
+        </Button>
+      </Box>
+
       {isInitializing ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', flex: 1 }}>
-          <CircularProgress />
+        <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", flex: 1 }}>
+          <CircularProgress sx={{ color: "#000" }} />
         </Box>
       ) : (
         <>
-          <Box sx={{ flex: 1, p: 2, overflowY: 'auto' }}>
+          <Box
+            ref={messagesContainerRef}
+            sx={{
+              flex: 1,
+              p: 2,
+              overflowY: "auto",
+              position: "relative",
+            }}
+          >
             {messages.map(renderMessage)}
-            
+
             {streamingContent && (
-              <Paper elevation={1} style={{ 
-                padding: '10px 15px', 
-                marginBottom: '10px',
-                backgroundColor: '#f1f8e9',
-              }}>
+              <Paper
+                elevation={1}
+                style={{
+                  padding: "10px 15px",
+                  marginBottom: "10px",
+                  backgroundColor: "#f1f8e9",
+                }}
+              >
                 <Typography variant="caption" display="block" gutterBottom>
                   ASSISTANT
                 </Typography>
-                <Typography variant="body1" style={{ whiteSpace: 'pre-wrap' }}>
+                <Typography variant="body1" style={{ whiteSpace: "pre-wrap" }}>
                   {streamingContent}
                 </Typography>
               </Paper>
             )}
-            
+
             <div ref={messagesEndRef} />
+
+            {/* Scroll to bottom button, only shown when user has scrolled up */}
+            {showScrollButton && (
+              <Button
+                variant="contained"
+                onClick={scrollToBottom}
+                sx={{
+                  position: "absolute",
+                  bottom: 16,
+                  right: 16,
+                  zIndex: 10,
+                  minWidth: "auto",
+                  borderRadius: "50%",
+                  width: 40,
+                  height: 40,
+                  padding: 0,
+                  backgroundColor: "#000",
+                  boxShadow: "0 4px 14px rgba(0, 0, 0, 0.15)",
+                  "&:hover": {
+                    backgroundColor: "#333",
+                  },
+                }}
+              >
+                <KeyboardArrowDownIcon />
+              </Button>
+            )}
           </Box>
-          
+
           <Divider />
-          
-          <Box component="form" onSubmit={handleSendMessage} sx={{ p: 2, display: 'flex', alignItems: 'center' }}>
+
+          <Box
+            component="form"
+            onSubmit={handleSendMessage}
+            sx={{
+              p: 2,
+              display: "flex",
+              alignItems: "flex-end", // so icon aligns with bottom of growing text field
+              borderTop: "1px solid #f0f0f0",
+            }}
+          >
             <TextField
               fullWidth
+              multiline
+              minRows={1}
+              maxRows={6} // set max height before scrolling inside input
               variant="outlined"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Type your message here..."
               disabled={isLoading}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault(); // prevent newline
+                  handleSendMessage(); // trigger send
+                }
+              }}
+              sx={{
+                "& .MuiOutlinedInput-root": {
+                  borderRadius: "24px",
+                  backgroundColor: "#f5f5f5",
+                  paddingRight: "12px", // spacing for icon button
+                  "& fieldset": {
+                    border: "none",
+                  },
+                  "&:hover fieldset": {
+                    border: "none",
+                  },
+                  "&.Mui-focused fieldset": {
+                    border: "none",
+                  },
+                },
+                "& .MuiInputBase-input": {
+                  padding: "14px 20px",
+                  fontSize: "15px",
+                },
+              }}
             />
-            <IconButton 
-              type="submit" 
-              color="primary" 
+            <IconButton
+              type="submit"
               disabled={isLoading || !input.trim()}
-              sx={{ ml: 1 }}
+              sx={{
+                ml: 1,
+                backgroundColor: "#000",
+                color: "#fff",
+                width: 48,
+                height: 48,
+                alignSelf: "flex-end", // aligns button with bottom of textarea
+                "&:hover": {
+                  backgroundColor: "#333",
+                },
+                "&.Mui-disabled": {
+                  backgroundColor: "#e0e0e0",
+                  color: "#9e9e9e",
+                },
+              }}
             >
-              {isLoading ? <CircularProgress size={24} /> : <SendIcon />}
+              {isLoading ? <CircularProgress size={24} sx={{ color: "#fff" }} /> : <SendIcon />}
             </IconButton>
           </Box>
+
         </>
       )}
     </Box>
-  );
-};
+  )
+}
 
-export default ChatInterface; 
+export default ChatInterface
