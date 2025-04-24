@@ -44,15 +44,7 @@ const Layout = () => {
   const drawer = (
     <Box sx={{ p: 2 }}>
       <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-        <Typography
-          variant="h6"
-          sx={{
-            fontWeight: 600,
-            fontSize: "20px",
-          }}
-        >
-          Aider Browser
-        </Typography>
+       
         <IconButton onClick={handleDrawerToggle} sx={{ display: { sm: "none" } }}>
           <CloseIcon />
         </IconButton>

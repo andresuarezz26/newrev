@@ -2,6 +2,8 @@ import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+//const API_URL = process.env.REACT_APP_API_URL || 'https://c80f-190-99-186-105.ngrok-free.app/api';
+
 const SESSION_ID = localStorage.getItem('sessionId') || `session_${uuidv4()}`;
 
 // Store session ID for future use
