@@ -8,6 +8,7 @@ import AutorenewIcon from "@mui/icons-material/Autorenew"
 import WebIcon from "@mui/icons-material/Web"
 import WifiIcon from "@mui/icons-material/Wifi"
 import AnalyticsIcon from "@mui/icons-material/Analytics"
+import OpenInNewIcon from "@mui/icons-material/OpenInNew"
 
 import ChatInterface from "./ChatInterface"
 import FileManager from "./FileManager"
@@ -90,6 +91,26 @@ const Layout = () => {
         }}
       >
         Clear Chat History
+      </Button>
+
+      <Button
+        variant="outlined"
+        fullWidth
+        startIcon={<OpenInNewIcon />}
+        onClick={() => window.open("http://localhost:8080", "_blank")}
+        sx={{
+          mb: 2,
+          borderRadius: "20px",
+          textTransform: "none",
+          borderColor: "#000",
+          color: "#000",
+          "&:hover": {
+            borderColor: "#333",
+            backgroundColor: "rgba(0, 0, 0, 0.04)",
+          },
+        }}
+      >
+        Show Preview
       </Button>
 
       {/**<Button
