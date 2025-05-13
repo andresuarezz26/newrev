@@ -1,6 +1,6 @@
 # Newrev
 
-**Newrev** is a collaborative code editor powered by AI. It lets you edit any GitHub project by combining the power of large language models with your own development workflow. Built on top of [aider](https://github.com/paul-gauthier/aider), Newrev provides a seamless human-AI collaboration environment where you can edit, iterate, and ship production-ready code.
+**Newrev** is an AI code generator that runs on the browser. Built on top of [aider](https://github.com/paul-gauthier/aider), Newrev provides a seamless human-AI collaboration environment where you can edit, iterate, and ship production-ready code.
 
 ---
 
@@ -8,8 +8,8 @@
 
 * Edit any GitHub project collaboratively with AI
 * Built on top of [aider](https://github.com/paul-gauthier/aider)
-* Fast, local development setup
-* AI-powered code suggestions and PR generation
+* Supports more than 100 programming languages
+* Live preview available for front end projects
 
 ---
 
@@ -28,7 +28,7 @@ Follow these steps to run Newrev locally.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/newrev.git
+git clone https://github.com/andresuarezz26/newrev.git
 cd newrev
 ```
 
@@ -39,13 +39,13 @@ cd newrev
 ```bash
 cd api
 pip install -r requirements.txt
-pip install -e ..  # Install aider in development mode
+pip install -e .. 
 ```
 
-Then run the backend server:
+Then run the backend server go the github folder of the project you want to edit and do the following:
 
 ```bash
-python3 app.py --model sonnet --api-key anthropic=[your anthropic API key]
+python3 ../newrev/app.py --model sonnet --api-key anthropic=[your anthropic API key]
 ```
 
 The backend will start on:
@@ -56,7 +56,7 @@ The backend will start on:
 ### 3. Set up the frontend
 
 ```bash
-cd ../client
+cd ../newrev/client
 npm install
 npm run dev
 ```
@@ -66,10 +66,10 @@ The frontend will be available at:
 
 ---
 
-### 4. Open a GitHub Project
+### 4. Open the browser
 
-* Open the main file of the GitHub repo you want to edit.
-* Start editing collaboratively with AI.
+* Open the front end project in the browser:
+🌐 `http://localhost:3000`
 
 ---
 
@@ -77,14 +77,13 @@ The frontend will be available at:
 
 ```
 newrev/
-├── api/        # Python backend (aider-based)
+├── aider/      # The Aider source code
+├── api/        # Python backend
 ├── client/     # Frontend (Next.js + Node.js)
 └── README.md   # You are here!
 ```
 
 ---
-
-
 
 ## 🙌 Contributing
 
