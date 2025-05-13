@@ -2,38 +2,28 @@
 
 import { useState } from "react"
 import { Box, Typography, Drawer, IconButton, AppBar, Toolbar, Divider, Button } from "@mui/material"
-import MenuIcon from "@mui/icons-material/Menu"
-import CloseIcon from "@mui/icons-material/Close"
-import AutorenewIcon from "@mui/icons-material/Autorenew"
-import WebIcon from "@mui/icons-material/Web"
-import WifiIcon from "@mui/icons-material/Wifi"
-import AnalyticsIcon from "@mui/icons-material/Analytics"
 import OpenInNewIcon from "@mui/icons-material/OpenInNew"
+import AutorenewIcon from "@mui/icons-material/Autorenew"
+import AspectRatioIcon from '@mui/icons-material/AspectRatio';
+import WebIcon from "@mui/icons-material/Web"
+import CloseIcon from "@mui/icons-material/Close"
 
 import ChatInterface from "./ChatInterface"
 import FileManager from "./FileManager"
 import WebPageAdder from "./WebPageAdder"
-import TestConnection from "./TestConnection"
-import PRDAnalyzer from "./PRDAnalyzer"
 import api from "../services/api"
 
 const drawerWidth = 320
+const iframeWidth = 800
 
 const Layout = () => {
-  const [mobileOpen, setMobileOpen] = useState(false)
   const [showWebAdder, setShowWebAdder] = useState(false)
-  const [showTestConnection, setShowTestConnection] = useState(false)
-  const [showPRDAnalyzer, setShowPRDAnalyzer] = useState(false)
-
-  const handleDrawerToggle = () => {
-    setMobileOpen(!mobileOpen)
-  }
+  const [showPreview, setShowPreview] = useState(true)
 
   const handleClearHistory = async () => {
     if (window.confirm("Are you sure you want to clear the chat history? This cannot be undone.")) {
       try {
         await api.clearHistory()
-        // Force reload to refresh the UI
         window.location.reload()
       } catch (error) {
         console.error("Error clearing history:", error)
@@ -42,15 +32,12 @@ const Layout = () => {
     }
   }
 
+  const togglePreview = () => {
+    setShowPreview(!showPreview)
+  }
+
   const drawer = (
     <Box sx={{ p: 2 }}>
-      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 2 }}>
-       
-        <IconButton onClick={handleDrawerToggle} sx={{ display: { sm: "none" } }}>
-          <CloseIcon />
-        </IconButton>
-      </Box>
-
       <Divider sx={{ mb: 2 }} />
 
       <Button
@@ -93,68 +80,7 @@ const Layout = () => {
         Clear Chat History
       </Button>
 
-      <Button
-        variant="outlined"
-        fullWidth
-        startIcon={<OpenInNewIcon />}
-        onClick={() => window.open("http://localhost:8080", "_blank")}
-        sx={{
-          mb: 2,
-          borderRadius: "20px",
-          textTransform: "none",
-          borderColor: "#000",
-          color: "#000",
-          "&:hover": {
-            borderColor: "#333",
-            backgroundColor: "rgba(0, 0, 0, 0.04)",
-          },
-        }}
-      >
-        Show Preview
-      </Button>
-
-      {/**<Button
-        variant="outlined"
-        fullWidth
-        startIcon={<WifiIcon />}
-        onClick={() => setShowTestConnection(true)}
-        sx={{
-          mb: 2,
-          borderRadius: "20px",
-          textTransform: "none",
-          borderColor: "#000",
-          color: "#000",
-          "&:hover": {
-            borderColor: "#333",
-            backgroundColor: "rgba(0, 0, 0, 0.04)",
-          },
-        }}
-      >
-        Test Connection
-      </Button>**/}
-
-      {/**<Button
-        variant="outlined"
-        fullWidth
-        startIcon={<AnalyticsIcon />}
-        onClick={() => setShowPRDAnalyzer(true)}
-        sx={{
-          mb: 2,
-          borderRadius: "20px",
-          textTransform: "none",
-          borderColor: "#000",
-          color: "#000",
-          "&:hover": {
-            borderColor: "#333",
-            backgroundColor: "rgba(0, 0, 0, 0.04)",
-          },
-        }}
-      >
-        Analyze PRD
-      </Button>**/}
-
       <Divider sx={{ my: 2 }} />
-
       <FileManager />
     </Box>
   )
@@ -163,14 +89,14 @@ const Layout = () => {
     <Box
       sx={{
         display: "flex",
+        flexDirection: "column",
+        height: "100vh",
         fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
       <AppBar
-        position="fixed"
+        position="static"
         sx={{
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          ml: { sm: `${drawerWidth}px` },
           backgroundColor: "#fff",
           color: "#000",
           boxShadow: "none",
@@ -178,84 +104,100 @@ const Layout = () => {
         }}
       >
         <Toolbar>
-          <IconButton
-            aria-label="open drawer"
-            edge="start"
-            onClick={handleDrawerToggle}
-            sx={{ mr: 2, display: { sm: "none" } }}
-          >
-            <MenuIcon />
-          </IconButton>
-          <Typography
-            variant="h6"
-            noWrap
-            component="div"
-            sx={{
-              fontWeight: 600,
-              fontSize: "20px",
-            }}
-          >
+          <Typography variant="h6" noWrap component="div" sx={{ fontWeight: 600, fontSize: "20px" }}>
             Newrev.io
           </Typography>
+          <Box sx={{ flexGrow: 1 }} />
+          <Button
+            variant="outlined"
+            startIcon={<OpenInNewIcon />}
+            onClick={() => window.open("http://localhost:8080", "_blank")}
+            sx={{
+              mr: 1,
+              textTransform: "none",
+              borderColor: "#000",
+              color: "#000",
+              height: "36px",
+              "&:hover": {
+                borderColor: "#333",
+                backgroundColor: "rgba(0, 0, 0, 0.04)",
+              },
+            }}
+          >
+            Open Preview
+          </Button>
+          <IconButton 
+            onClick={togglePreview} 
+            sx={{ 
+              ml: 1, 
+              backgroundColor: showPreview ? 'rgba(0, 0, 0, 0.04)' : 'transparent',
+              '&:hover': {
+                backgroundColor: 'rgba(0, 0, 0, 0.08)'
+              }
+            }}
+          >
+            {showPreview ? <CloseIcon /> : <AspectRatioIcon />}
+          </IconButton>
         </Toolbar>
       </AppBar>
 
-      <Box component="nav" sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}>
-        <Drawer
-          variant="temporary"
-          open={mobileOpen}
-          onClose={handleDrawerToggle}
-          ModalProps={{ keepMounted: true }}
-          sx={{
-            display: { xs: "block", sm: "none" },
-            "& .MuiDrawer-paper": {
-              boxSizing: "border-box",
-              width: drawerWidth,
-              borderRight: "1px solid #f0f0f0",
-            },
-          }}
-        >
-          {drawer}
-        </Drawer>
-        <Drawer
-          variant="permanent"
-          sx={{
-            display: { xs: "none", sm: "block" },
-            "& .MuiDrawer-paper": {
-              boxSizing: "border-box",
-              width: drawerWidth,
-              borderRight: "1px solid #f0f0f0",
-            },
-          }}
-          open
-        >
-          {drawer}
-        </Drawer>
-      </Box>
-
-      <Box
-        component="main"
-        sx={{
-          flexGrow: 1,
-          width: { sm: `calc(100% - ${drawerWidth}px)` },
-          height: "100vh",
-          overflow: "hidden",
-          display: "flex",
-          flexDirection: "column",
-          backgroundColor: "#fff",
-        }}
-      >
-        <Toolbar /> {/* Spacer for AppBar */}
-        <Box sx={{ flex: 1, overflow: "hidden" }}>
-          <ChatInterface />
+      <Box sx={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        <Box component="nav" sx={{ width: drawerWidth, flexShrink: 0 }}>
+          <Drawer
+            variant="permanent"
+            sx={{
+              "& .MuiDrawer-paper": {
+                boxSizing: "border-box",
+                width: drawerWidth,
+                borderRight: "1px solid #f0f0f0",
+                height: "100%",
+                position: "relative",
+              },
+            }}
+            open
+          >
+            {drawer}
+          </Drawer>
         </Box>
+
+        <Box
+          component="main"
+          sx={{
+            flexGrow: 1,
+            width: showPreview ? `calc(100% - ${drawerWidth}px - ${iframeWidth}px)` : `calc(100% - ${drawerWidth}px)`,
+            height: "100%",
+            overflow: "hidden",
+            display: "flex",
+            flexDirection: "column",
+            backgroundColor: "#fff",
+          }}
+        >
+          <Box sx={{ flex: 1, overflow: "hidden" }}>
+            <ChatInterface />
+          </Box>
+        </Box>
+
+        {/* Right-side iframe preview */}
+        {showPreview && (
+          <Box
+            sx={{
+              width: `${iframeWidth}px`,
+              borderLeft: "1px solid #f0f0f0",
+              height: "100%",
+              position: "relative",
+              zIndex: 1,
+            }}
+          >
+            <iframe
+              src="http://localhost:8080"
+              style={{ width: "100%", height: "100%", border: "none" }}
+              title="Live Preview"
+            />
+          </Box>
+        )}
       </Box>
 
       {showWebAdder && <WebPageAdder open={showWebAdder} onClose={() => setShowWebAdder(false)} />}
-
-      {showTestConnection && <TestConnection open={showTestConnection} onClose={() => setShowTestConnection(false)} />}
-
-      {showPRDAnalyzer && <PRDAnalyzer open={showPRDAnalyzer} onClose={() => setShowPRDAnalyzer(false)} />}
     </Box>
   )
 }

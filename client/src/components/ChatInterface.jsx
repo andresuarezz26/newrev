@@ -216,80 +216,90 @@ const ChatInterface = () => {
     setShowScrollButton(false)
   }
 
-  // Render message based on role - KEEPING THIS EXACTLY AS ORIGINAL
-  const renderMessage = (message, index) => {
-    const { role, content } = message
+  // Render message based on role
+    const renderMessage = (message, index) => {
+        const { role, content } = message;
 
-    let backgroundColor
-    let textColor = "#000"
+        let messageStyle = {};
 
-    switch (role) {
-      case "user":
-        backgroundColor = "#000000"
-        textColor = "#ffffff"
-        break
-      case "assistant":
-        backgroundColor = "#f5f5f5"
-        textColor = "#000000"
-        break
-      case "info":
-        backgroundColor = "#f5f5f5"
-        textColor = "#000000"
-        break
-      case "error":
-        backgroundColor = "#ffebee"
-        textColor = "#c62828"
-        break
-      case "commit":
-        backgroundColor = "#f5f5f5"
-        textColor = "#000000"
-        break
-      default:
-        backgroundColor = "#f5f5f5"
-        textColor = "#000000"
-    }
+        switch (role) {
+            case "user":
+                messageStyle = {
+                    backgroundColor: '#000000',
+                    color: '#ffffff',
+                };
+                break;
+            case "assistant":
+                messageStyle = {
+                    backgroundColor: '#f5f5f5',
+                    color: '#000000',
+                };
+                break;
+            case "info":
+                messageStyle = {
+                    backgroundColor: '#f5f5f5',
+                    color: '#000000',
+                };
+                break;
+            case "error":
+                messageStyle = {
+                    backgroundColor: '#ffebee',
+                    color: '#c62828',
+                };
+                break;
+            case "commit":
+                messageStyle = {
+                    backgroundColor: '#f5f5f5',
+                    color: '#000000',
+                };
+                break;
+            default:
+                messageStyle = {
+                    backgroundColor: '#f5f5f5',
+                    color: '#000000',
+                };
+        }
 
-    return (
-      <Paper
-        key={index}
-        elevation={1}
-        style={{
-          padding: "10px 15px",
-          marginBottom: "10px",
-          backgroundColor,
-          color: textColor,
-        }}
-      >
-        <Typography variant="caption" display="block" gutterBottom>
-          {role.toUpperCase()}
-        </Typography>
-        <Typography variant="body1" style={{ whiteSpace: "pre-wrap" }}>
-          {content}
-        </Typography>
-
-        {role === "commit" && message.diff && (
-          <Box mt={1}>
-            <Button size="small" variant="outlined" color="primary" onClick={() => api.undoCommit(message.hash)}>
-              Revert Changes
-            </Button>
-            <Typography
-              variant="body2"
-              component="pre"
-              style={{
-                marginTop: "10px",
-                padding: "10px",
-                backgroundColor: "#f5f5f5",
-                overflowX: "auto",
-                fontSize: "0.8rem",
-              }}
+        return (
+            <Paper
+                key={index}
+                elevation={1}
+                style={{
+                    padding: '10px 15px',
+                    marginBottom: '10px',
+                    ...messageStyle,
+                }}
             >
-              {message.diff}
-            </Typography>
-          </Box>
-        )}
-      </Paper>
-    )
-  }
+                <Typography variant="caption" display="block" gutterBottom>
+                    {role.toUpperCase()}
+                </Typography>
+                <Typography variant="body1" style={{ whiteSpace: 'pre-wrap' }}>
+                    {content}
+                </Typography>
+
+                {role === "commit" && message.diff && (
+                    <Box mt={1}>
+                        <Button size="small" variant="outlined" color="primary" onClick={() => api.undoCommit(message.hash)}>
+                            Revert Changes
+                        </Button>
+                        <Typography
+                            variant="body2"
+                            component="pre"
+                            style={{
+                                marginTop: '10px',
+                                padding: '10px',
+                                backgroundColor: '#f5f5f5',
+                                overflowX: 'auto',
+                                fontSize: '0.8rem',
+                            }}
+                        >
+                            {message.diff}
+                        </Typography>
+                    </Box>
+                )}
+            </Paper>
+        );
+    };
 
   return (
     <Box
@@ -476,7 +486,6 @@ const ChatInterface = () => {
               {isLoading ? <CircularProgress size={24} sx={{ color: "#fff" }} /> : <SendIcon />}
             </IconButton>
           </Box>
-
         </>
       )}
     </Box>
