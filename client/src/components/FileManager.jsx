@@ -147,7 +147,8 @@ const FileManager = () => {
     <Paper
       elevation={0}
       sx={{
-        maxHeight: "calc(100vh - 240px)",
+        maxHeight: "calc(100vh - 200px)",
+        height: "100%",
         overflow: "hidden",
         display: "flex",
         flexDirection: "column",

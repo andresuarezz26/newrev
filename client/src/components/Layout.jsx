@@ -98,8 +98,7 @@ const Layout = () => {
         </Toolbar>
       </AppBar>
 
-      <Box sx={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <Box component="nav" sx={{ width: drawerWidth, flexShrink: 0 }}>
+      <Box sx={{ display: "flex", flex: 2, overflow: "hidden" }}>
           <Drawer
             variant="permanent"
             sx={{
@@ -115,7 +114,7 @@ const Layout = () => {
           >
             {drawer}
           </Drawer>
-        </Box>
+
 
         <Box
           component="main"

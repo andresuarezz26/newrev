@@ -312,44 +312,6 @@ const ChatInterface = () => {
         fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
       }}
     >
-      <Box
-        sx={{
-          p: 2,
-          borderBottom: "1px solid #f0f0f0",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Typography
-          variant="h4"
-          sx={{
-            fontWeight: 600,
-            fontSize: "20px",
-          }}
-        >
-          Aider Browser
-        </Typography>
-        <Button
-          variant="contained"
-          sx={{
-            backgroundColor: "#000",
-            color: "#fff",
-            borderRadius: "20px",
-            textTransform: "none",
-            px: 3,
-            py: 1,
-            fontWeight: 500,
-            boxShadow: "none",
-            "&:hover": {
-              backgroundColor: "#333",
-              boxShadow: "none",
-            },
-          }}
-        >
-          Get Started
-        </Button>
-      </Box>
 
       {isInitializing ? (
         <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", flex: 1 }}>
@@ -364,6 +326,7 @@ const ChatInterface = () => {
               p: 2,
               overflowY: "auto",
               position: "relative",
+              marginTop: "60px",
             }}
           >
             {messages.map(renderMessage)}
