@@ -128,7 +128,7 @@ const Layout = () => {
             backgroundColor: "#fff",
           }}
         >
-          <Box sx={{ flex: 1, overflow: "hidden" }}>
+          <Box sx={{ flex: 1, overflow: "hidden", padding: "15px" }}>
             <ChatInterface />
           </Box>
         </Box>
