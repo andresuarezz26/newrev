@@ -13,7 +13,7 @@ import FileManager from "./FileManager"
 import WebPageAdder from "./WebPageAdder"
 import api from "../services/api"
 
-const drawerWidth = 320
+const drawerWidth = 400
 const iframeWidth = 800
 
 const Layout = () => {
@@ -38,49 +38,6 @@ const Layout = () => {
 
   const drawer = (
     <Box sx={{ p: 2 }}>
-      <Divider sx={{ mb: 2 }} />
-
-      <Button
-        variant="outlined"
-        fullWidth
-        startIcon={<WebIcon />}
-        onClick={() => setShowWebAdder(true)}
-        sx={{
-          mb: 2,
-          borderRadius: "20px",
-          textTransform: "none",
-          borderColor: "#000",
-          color: "#000",
-          "&:hover": {
-            borderColor: "#333",
-            backgroundColor: "rgba(0, 0, 0, 0.04)",
-          },
-        }}
-      >
-        Add Web Page
-      </Button>
-
-      <Button
-        variant="outlined"
-        fullWidth
-        startIcon={<AutorenewIcon />}
-        onClick={handleClearHistory}
-        sx={{
-          mb: 2,
-          borderRadius: "20px",
-          textTransform: "none",
-          borderColor: "#f44336",
-          color: "#f44336",
-          "&:hover": {
-            borderColor: "#d32f2f",
-            backgroundColor: "rgba(244, 67, 54, 0.04)",
-          },
-        }}
-      >
-        Clear Chat History
-      </Button>
-
-      <Divider sx={{ my: 2 }} />
       <FileManager />
     </Box>
   )
@@ -141,8 +98,7 @@ const Layout = () => {
         </Toolbar>
       </AppBar>
 
-      <Box sx={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <Box component="nav" sx={{ width: drawerWidth, flexShrink: 0 }}>
+      <Box sx={{ display: "flex", flex: 2, overflow: "hidden" }}>
           <Drawer
             variant="permanent"
             sx={{
@@ -158,7 +114,7 @@ const Layout = () => {
           >
             {drawer}
           </Drawer>
-        </Box>
+
 
         <Box
           component="main"
@@ -172,7 +128,7 @@ const Layout = () => {
             backgroundColor: "#fff",
           }}
         >
-          <Box sx={{ flex: 1, overflow: "hidden" }}>
+          <Box sx={{ flex: 1, overflow: "hidden", padding: "15px" }}>
             <ChatInterface />
           </Box>
         </Box>

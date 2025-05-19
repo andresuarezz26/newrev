@@ -302,54 +302,21 @@ const ChatInterface = () => {
     };
 
   return (
-    <Box
+    <Paper
+      elevation={0}
       sx={{
         display: "flex",
         flexDirection: "column",
-        height: "100vh",
-        maxWidth: "800px",
+        height: "100%",
+        maxWidth: "100%",
         mx: "auto",
         fontFamily: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        boxShadow: "0 2px 12px rgba(0,0,0,0.08)",
+        border: "1px solid #eaeaea",
+        borderRadius: "16px",
+        overflow: "hidden",
       }}
     >
-      <Box
-        sx={{
-          p: 2,
-          borderBottom: "1px solid #f0f0f0",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <Typography
-          variant="h4"
-          sx={{
-            fontWeight: 600,
-            fontSize: "20px",
-          }}
-        >
-          Aider Browser
-        </Typography>
-        <Button
-          variant="contained"
-          sx={{
-            backgroundColor: "#000",
-            color: "#fff",
-            borderRadius: "20px",
-            textTransform: "none",
-            px: 3,
-            py: 1,
-            fontWeight: 500,
-            boxShadow: "none",
-            "&:hover": {
-              backgroundColor: "#333",
-              boxShadow: "none",
-            },
-          }}
-        >
-          Get Started
-        </Button>
-      </Box>
 
       {isInitializing ? (
         <Box sx={{ display: "flex", justifyContent: "center", alignItems: "center", flex: 1 }}>
@@ -357,6 +324,19 @@ const ChatInterface = () => {
         </Box>
       ) : (
         <>
+          <Box sx={{ p: 2.5, borderBottom: "1px solid #f0f0f0" }}>
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 700,
+                fontSize: "18px",
+                color: "#111",
+              }}
+            >
+              Chat
+            </Typography>
+          </Box>
+          
           <Box
             ref={messagesContainerRef}
             sx={{
@@ -364,6 +344,7 @@ const ChatInterface = () => {
               p: 2,
               overflowY: "auto",
               position: "relative",
+              backgroundColor: "#fafafa",
             }}
           >
             {messages.map(renderMessage)}
@@ -403,10 +384,10 @@ const ChatInterface = () => {
                   width: 40,
                   height: 40,
                   padding: 0,
-                  backgroundColor: "#000",
-                  boxShadow: "0 4px 14px rgba(0, 0, 0, 0.15)",
+                  backgroundColor: "#1976d2",
+                  boxShadow: "0 4px 14px rgba(25, 118, 210, 0.25)",
                   "&:hover": {
-                    backgroundColor: "#333",
+                    backgroundColor: "#1565c0",
                   },
                 }}
               >
@@ -415,16 +396,15 @@ const ChatInterface = () => {
             )}
           </Box>
 
-          <Divider />
-
           <Box
             component="form"
             onSubmit={handleSendMessage}
             sx={{
-              p: 2,
+              p: 2.5,
               display: "flex",
               alignItems: "flex-end", // so icon aligns with bottom of growing text field
               borderTop: "1px solid #f0f0f0",
+              backgroundColor: "#fff",
             }}
           >
             <TextField
@@ -445,22 +425,23 @@ const ChatInterface = () => {
               }}
               sx={{
                 "& .MuiOutlinedInput-root": {
-                  borderRadius: "24px",
-                  backgroundColor: "#f5f5f5",
+                  borderRadius: "12px",
+                  backgroundColor: "#f9f9f9",
                   paddingRight: "12px", // spacing for icon button
+                  transition: "all 0.2s ease",
                   "& fieldset": {
-                    border: "none",
+                    borderColor: "#e0e0e0",
                   },
                   "&:hover fieldset": {
-                    border: "none",
+                    borderColor: "#bdbdbd",
                   },
                   "&.Mui-focused fieldset": {
-                    border: "none",
+                    borderColor: "#1976d2",
                   },
                 },
                 "& .MuiInputBase-input": {
                   padding: "14px 20px",
-                  fontSize: "15px",
+                  fontSize: "14px",
                 },
               }}
             />
@@ -469,13 +450,14 @@ const ChatInterface = () => {
               disabled={isLoading || !input.trim()}
               sx={{
                 ml: 1,
-                backgroundColor: "#000",
+                backgroundColor: "#1976d2",
                 color: "#fff",
                 width: 48,
                 height: 48,
                 alignSelf: "flex-end", // aligns button with bottom of textarea
+                borderRadius: "12px",
                 "&:hover": {
-                  backgroundColor: "#333",
+                  backgroundColor: "#1565c0",
                 },
                 "&.Mui-disabled": {
                   backgroundColor: "#e0e0e0",
@@ -483,12 +465,12 @@ const ChatInterface = () => {
                 },
               }}
             >
-              {isLoading ? <CircularProgress size={24} sx={{ color: "#fff" }} /> : <SendIcon />}
+              {isLoading ? <CircularProgress size={24} sx={{ color: "#fff" }} /> : <SendIcon fontSize="small" />}
             </IconButton>
           </Box>
         </>
       )}
-    </Box>
+    </Paper>
   )
 }
 
