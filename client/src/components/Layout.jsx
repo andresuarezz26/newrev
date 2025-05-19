@@ -13,7 +13,7 @@ import FileManager from "./FileManager"
 import WebPageAdder from "./WebPageAdder"
 import api from "../services/api"
 
-const drawerWidth = 320
+const drawerWidth = 400
 const iframeWidth = 800
 
 const Layout = () => {
@@ -38,12 +38,6 @@ const Layout = () => {
 
   const drawer = (
     <Box sx={{ p: 2 }}>
-      <Divider sx={{ mb: 2 }} />
-
-      {/* Buttons hidden as requested, but functionality remains */}
-      {/* Add Web Page and Clear Chat History buttons removed */}
-
-      <Divider sx={{ my: 2 }} />
       <FileManager />
     </Box>
   )
