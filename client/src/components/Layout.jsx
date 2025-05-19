@@ -40,45 +40,8 @@ const Layout = () => {
     <Box sx={{ p: 2 }}>
       <Divider sx={{ mb: 2 }} />
 
-      <Button
-        variant="outlined"
-        fullWidth
-        startIcon={<WebIcon />}
-        onClick={() => setShowWebAdder(true)}
-        sx={{
-          mb: 2,
-          borderRadius: "20px",
-          textTransform: "none",
-          borderColor: "#000",
-          color: "#000",
-          "&:hover": {
-            borderColor: "#333",
-            backgroundColor: "rgba(0, 0, 0, 0.04)",
-          },
-        }}
-      >
-        Add Web Page
-      </Button>
-
-      <Button
-        variant="outlined"
-        fullWidth
-        startIcon={<AutorenewIcon />}
-        onClick={handleClearHistory}
-        sx={{
-          mb: 2,
-          borderRadius: "20px",
-          textTransform: "none",
-          borderColor: "#f44336",
-          color: "#f44336",
-          "&:hover": {
-            borderColor: "#d32f2f",
-            backgroundColor: "rgba(244, 67, 54, 0.04)",
-          },
-        }}
-      >
-        Clear Chat History
-      </Button>
+      {/* Buttons hidden as requested, but functionality remains */}
+      {/* Add Web Page and Clear Chat History buttons removed */}
 
       <Divider sx={{ my: 2 }} />
       <FileManager />
