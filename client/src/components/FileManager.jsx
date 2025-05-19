@@ -110,7 +110,12 @@ const FileManager = () => {
     }
   }
 
-  const filteredFiles = files.filter((file) => file.toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredFiles = (() => {
+    const matchingFiles = files.filter((file) => file.toLowerCase().includes(searchTerm.toLowerCase()));
+    const inChatMatching = matchingFiles.filter(file => inchatFiles.includes(file));
+    const notInChatMatching = matchingFiles.filter(file => !inchatFiles.includes(file));
+    return [...inChatMatching, ...notInChatMatching];
+  })();
 
   if (isLoading && files.length === 0) {
     return (
