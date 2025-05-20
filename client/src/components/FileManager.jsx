@@ -2,65 +2,6 @@
 
 import { useState, useEffect } from "react"
 
-/**
- * @typedef {Object} FileItem
- * @property {string} name
- * @property {'file' | 'folder'} type
- * @property {FileItem[]} [children]
- * @property {string} [content]
- * @property {string} path
- */
-
-/**
- * Build a tree of FileItem objects from a list of file paths.
- * 
- * @param {string[]} paths - List of file paths, e.g. ['src/index.js', 'src/utils/helpers.js', 'README.md']
- * @returns {FileItem[]} - Array of root FileItems representing the folder structure.
- */
-function buildFileTree(paths) {
-  const root = [];
-
-  function findOrCreateFolder(children, folderName, folderPath) {
-    let folder = children.find(item => item.name === folderName && item.type === 'folder');
-    if (!folder) {
-      folder = {
-        name: folderName,
-        type: 'folder',
-        children: [],
-        path: folderPath,
-      };
-      children.push(folder);
-    }
-    return folder;
-  }
-
-  for (const fullPath of paths) {
-    const parts = fullPath.split('/').filter(Boolean); // split and remove empty segments
-    let currentLevel = root;
-
-    for (let i = 0; i < parts.length; i++) {
-      const name = parts[i];
-      const isFile = (i === parts.length - 1);
-
-      if (isFile) {
-        // Add file
-        currentLevel.push({
-          name,
-          type: 'file',
-          path: fullPath,
-          // content can be added here if available, else undefined
-        });
-      } else {
-        // Add or find folder
-        const pathUpToHere = parts.slice(0, i + 1).join('/');
-        const folder = findOrCreateFolder(currentLevel, name, pathUpToHere);
-        currentLevel = folder.children;
-      }
-    }
-  }
-
-  return root;
-}
 import {
   Box,
   List,
@@ -382,6 +323,52 @@ const FileManager = () => {
       </Box>
     </Paper>
   )
+}
+
+
+function buildFileTree(paths) {
+  const root = [];
+
+  function findOrCreateFolder(children, folderName, folderPath) {
+    let folder = children.find(item => item.name === folderName && item.type === 'folder');
+    if (!folder) {
+      folder = {
+        name: folderName,
+        type: 'folder',
+        children: [],
+        path: folderPath,
+      };
+      children.push(folder);
+    }
+    return folder;
+  }
+
+  for (const fullPath of paths) {
+    const parts = fullPath.split('/').filter(Boolean); // split and remove empty segments
+    let currentLevel = root;
+
+    for (let i = 0; i < parts.length; i++) {
+      const name = parts[i];
+      const isFile = (i === parts.length - 1);
+
+      if (isFile) {
+        // Add file
+        currentLevel.push({
+          name,
+          type: 'file',
+          path: fullPath,
+          // content can be added here if available, else undefined
+        });
+      } else {
+        // Add or find folder
+        const pathUpToHere = parts.slice(0, i + 1).join('/');
+        const folder = findOrCreateFolder(currentLevel, name, pathUpToHere);
+        currentLevel = folder.children;
+      }
+    }
+  }
+
+  return root;
 }
 
 export default FileManager
