@@ -58,6 +58,10 @@ const FileManager = () => {
         if (response.status === "success") {
           setFiles(response.all_files || [])
           setInchatFiles(response.inchat_files || [])
+          
+          // Use buildFileTree to create and log the file tree structure
+          const fileTree = buildFileTree(response.all_files || [])
+          console.log('File Tree Structure:', fileTree)
         } else {
           setError("Failed to fetch files")
         }
