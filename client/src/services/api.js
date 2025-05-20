@@ -120,20 +120,6 @@ const removeEventListener = (event, callback) => {
 // Initialize the connection
 connectToEventStream();
 
-// Create a test message function to replace socket.emit
-const sendTestMessage = async (message) => {
-  try {
-    const response = await axios.post(`${API_URL}/test_message`, {
-      session_id: SESSION_ID,
-      message
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Error sending test message:', error);
-    throw error;
-  }
-};
-
 // API service
 const api = {
   // Initialize a session
@@ -245,96 +231,12 @@ const api = {
       throw error;
     }
   },
-
-  // Generate a PRD
-  generatePRD: async (description) => {
-    try {
-      const response = await axios.post(`${API_URL}/generate_prd`, {
-        session_id: SESSION_ID,
-        description
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error generating PRD:', error);
-      throw error;
-    }
-  },
-
-  // Generate tasks from a PRD
-  generateTasks: async (prd) => {
-    try {
-      const response = await axios.post(`${API_URL}/generate_tasks`, {
-        session_id: SESSION_ID,
-        prd
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error generating tasks:', error);
-      throw error;
-    }
-  },
-
-  // Execute tasks
-  executeTasks: async (tasks) => {
-    try {
-      const response = await axios.post(`${API_URL}/execute_tasks`, {
-        session_id: SESSION_ID,
-        tasks
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error executing tasks:', error);
-      throw error;
-    }
-  },
-
-  // Get task status
-  getTaskStatus: async () => {
-    try {
-      const response = await axios.get(`${API_URL}/task_status`, {
-        params: { session_id: SESSION_ID }
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error getting task status:', error);
-      throw error;
-    }
-  },
-
-  // Generate tasks from a PRD
-  generateTasksFromPRD: async (prdContent, numTasks = 5) => {
-    try {
-      const response = await axios.post(`${API_URL}/generate_tasks_from_prd`, {
-        session_id: SESSION_ID,
-        prd_content: prdContent,
-        num_tasks: numTasks
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error generating tasks from PRD:', error);
-      throw error;
-    }
-  },
-  
-  // Get PRD content from repository
-  getPRDContent: async () => {
-    try {
-      const response = await axios.get(`${API_URL}/get_prd`, {
-        params: { session_id: SESSION_ID }
-      });
-      return response.data;
-    } catch (error) {
-      console.error('Error fetching PRD content:', error);
-      throw error;
-    }
-  }
 };
 
 export { 
   SESSION_ID, 
   addEventListener, 
   removeEventListener,
-  sendTestMessage
 };
 
 export default api; 
