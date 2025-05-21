@@ -322,6 +322,44 @@ const FileManager = () => {
           Project Files
         </Typography>
 
+        {/* Selected Files Section */}
+        {inchatFiles.length > 0 && (
+          <Box sx={{ mb: 2 }}>
+            <Typography
+              variant="subtitle2"
+              sx={{
+                color: "#666",
+                fontSize: "12px",
+                mb: 1,
+                textTransform: "uppercase",
+                letterSpacing: "0.5px"
+              }}
+            >
+              Selected Files
+            </Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {inchatFiles.map((file) => (
+                <Chip
+                  key={file}
+                  label={file}
+                  size="small"
+                  onDelete={() => handleToggleFile(file)}
+                  sx={{
+                    backgroundColor: alpha('#1976d2', 0.1),
+                    color: '#1976d2',
+                    '& .MuiChip-deleteIcon': {
+                      color: '#1976d2',
+                      '&:hover': {
+                        color: '#f44336'
+                      }
+                    }
+                  }}
+                />
+              ))}
+            </Box>
+          </Box>
+        )}
+
         <TextField
           fullWidth
           variant="outlined"
@@ -359,7 +397,7 @@ const FileManager = () => {
           }}
         />
 
-        <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <Box sx={{ display: "flex", justifyContent: "flex-start", alignItems: "center" }}>
           <Chip 
             label={`${inchatFiles.length} files in chat`} 
             size="small"
@@ -373,15 +411,6 @@ const FileManager = () => {
               }
             }}
           />
-          <Typography
-            variant="body2"
-            sx={{
-              color: "#666",
-              fontSize: "13px",
-            }}
-          >
-            {files.length} total files
-          </Typography>
         </Box>
       </Box>
 
@@ -404,20 +433,83 @@ const FileManager = () => {
               {error}
             </Typography>
           </Paper>
-        ) : filteredTree.length === 0 ? (
-          <Box sx={{ textAlign: "center", py: 4 }}>
-            <SearchIcon sx={{ fontSize: 40, color: "#ccc", mb: 1 }} />
-            <Typography
-              variant="body2"
-              sx={{
-                fontSize: "14px",
-                color: "#888",
-              }}
-            >
-              No matching files found
-            </Typography>
+        ) : searchTerm ? (
+          // Flat list view when searching
+          <Box sx={{ mt: 1 }}>
+            {filteredFiles.map((file) => {
+              const isInChat = inchatFiles.includes(file);
+              return (
+                <Box
+                  key={file}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                    p: 1,
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease',
+                    backgroundColor: isInChat ? alpha('#1976d2', 0.04) : 'transparent',
+                    borderLeft: isInChat ? '3px solid #1976d2' : '3px solid transparent',
+                    '&:hover': {
+                      backgroundColor: isInChat ? alpha('#1976d2', 0.08) : alpha('#000', 0.02),
+                    }
+                  }}
+                  onClick={() => handleToggleFile(file)}
+                >
+                  <CodeIcon fontSize="small" sx={{ color: '#555' }} />
+                  <Typography 
+                    sx={{ 
+                      fontSize: '14px',
+                      color: isInChat ? '#1976d2' : '#333',
+                      fontWeight: isInChat ? 600 : 400,
+                      flexGrow: 1,
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}
+                  >
+                    {file}
+                  </Typography>
+                  <Tooltip title={isInChat ? "Remove from chat" : "Add to chat"}>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleFile(file);
+                      }}
+                      sx={{
+                        color: isInChat ? "#f44336" : "#1976d2",
+                        width: 28,
+                        height: 28,
+                        "&:hover": {
+                          backgroundColor: isInChat ? alpha("#f44336", 0.08) : alpha("#1976d2", 0.08),
+                        },
+                      }}
+                    >
+                      {isInChat ? <RemoveIcon fontSize="small" /> : <AddIcon fontSize="small" />}
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              );
+            })}
+            {filteredFiles.length === 0 && (
+              <Box sx={{ textAlign: "center", py: 4 }}>
+                <SearchIcon sx={{ fontSize: 40, color: "#ccc", mb: 1 }} />
+                <Typography
+                  variant="body2"
+                  sx={{
+                    fontSize: "14px",
+                    color: "#888",
+                  }}
+                >
+                  No matching files found
+                </Typography>
+              </Box>
+            )}
           </Box>
         ) : (
+          // Tree view when not searching
           <Box sx={{ mt: 1 }}>
             {filteredTree.map((item, index) => (
               <FileNode 
@@ -454,6 +546,7 @@ function buildFileTree(paths) {
     return folder;
   }
 
+  // First, build the tree structure
   for (const fullPath of paths) {
     const parts = fullPath.split('/').filter(Boolean); // split and remove empty segments
     let currentLevel = root;
@@ -468,7 +561,6 @@ function buildFileTree(paths) {
           name,
           type: 'file',
           path: fullPath,
-          // content can be added here if available, else undefined
         });
       } else {
         // Add or find folder
@@ -479,7 +571,30 @@ function buildFileTree(paths) {
     }
   }
 
-  return root;
+  // Function to sort a level of the tree
+  function sortTreeLevel(level) {
+    if (!level || level.length === 0) return level;
+
+    // Separate folders and files
+    const folders = level.filter(item => item.type === 'folder');
+    const files = level.filter(item => item.type === 'file');
+
+    // Sort each group alphabetically
+    folders.sort((a, b) => a.name.localeCompare(b.name));
+    files.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Recursively sort children of each folder
+    const sortedFolders = folders.map(folder => ({
+      ...folder,
+      children: sortTreeLevel(folder.children)
+    }));
+
+    // Return combined array with folders first, then files
+    return [...sortedFolders, ...files];
+  }
+
+  // Sort the entire tree structure
+  return sortTreeLevel(root);
 }
 
 export default FileManager

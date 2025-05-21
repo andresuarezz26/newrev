@@ -15,6 +15,7 @@ import api from "../services/api"
 
 const drawerWidth = 400
 const iframeWidth = 800
+const previewUrl = "https://3960-190-99-251-208.ngrok-free.app/"
 
 const Layout = () => {
   const [showWebAdder, setShowWebAdder] = useState(false)
@@ -68,7 +69,7 @@ const Layout = () => {
           <Button
             variant="outlined"
             startIcon={<OpenInNewIcon />}
-            onClick={() => window.open("http://localhost:8080", "_blank")}
+            onClick={() => window.open(previewUrl, "_blank")}
             sx={{
               mr: 1,
               textTransform: "none",
@@ -145,7 +146,7 @@ const Layout = () => {
             }}
           >
             <iframe
-              src="http://localhost:8080"
+              src={previewUrl}
               style={{ width: "100%", height: "100%", border: "none" }}
               title="Live Preview"
             />
