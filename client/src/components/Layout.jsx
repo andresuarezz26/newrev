@@ -15,7 +15,7 @@ import api from "../services/api"
 
 const drawerWidth = 400
 const iframeWidth = 800
-const previewUrl = "https://3960-190-99-251-208.ngrok-free.app/"
+const previewUrl = "http://localhost:3000"
 
 const Layout = () => {
   const [showWebAdder, setShowWebAdder] = useState(false)
