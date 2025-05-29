@@ -15,7 +15,7 @@ import api from "../services/api"
 
 const drawerWidth = 400
 const iframeWidth = 800
-const previewUrl = "http://localhost:3000"
+const previewUrl = "http://localhost:5173/"
 
 const Layout = () => {
   const [showWebAdder, setShowWebAdder] = useState(false)
